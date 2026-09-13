@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+outputs/
+.DS_Store
+
+# Model weights are pulled locally; only small config/tokenizer files are committable
+weights/**/*.safetensors
+weights/**/*.ckpt
+weights/**/*.bin
+weights/**/*.pt
+weights/**/*.pth
+weights/**/*.onnx
+weights/**/.cache/
+
+# GOT-OCR2 ships an 18.7 MB tokenizer.json; it is manifest-listed and staged like the weights rather than vendored
+weights/**/tokenizer.json
