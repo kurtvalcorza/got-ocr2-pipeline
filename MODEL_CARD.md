@@ -2,6 +2,7 @@
 license: apache-2.0
 model_card_spec: "1.1"
 pipeline_tag: image-text-to-text
+task: "Others - Optical Character Recognition"
 base_model: stepfun-ai/GOT-OCR-2.0-hf
 date_published: "2024-11-22"
 date_published_source: "Hugging Face Hub repository creation date of the exact hosted checkpoint (`createdAt` 2024-11-22T23:01:40Z, https://huggingface.co/api/models/stepfun-ai/GOT-OCR-2.0-hf — the Transformers-native conversion); the original `stepfun-ai/GOT-OCR2_0` release and the paper arXiv:2409.01704 are from 2024-09, and the pinned revision is the Hub's `main` as of 2026-09-14"
