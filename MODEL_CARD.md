@@ -7,7 +7,7 @@ date_published: "2024-11-22"
 date_published_source: "Hugging Face Hub repository creation date of the exact hosted checkpoint (`createdAt` 2024-11-22T23:01:40Z, https://huggingface.co/api/models/stepfun-ai/GOT-OCR-2.0-hf — the Transformers-native conversion); the original `stepfun-ai/GOT-OCR2_0` release and the paper arXiv:2409.01704 are from 2024-09, and the pinned revision is the Hub's `main` as of 2026-09-14"
 ---
 
-# GOT-OCR 2.0 (DIMER package v0.1.0) — Optical Character Recognition (Inference)
+# GOT-OCR 2.0 — Optical Character Recognition (Inference)
 
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-stepfun--ai%2FGOT--OCR--2.0--hf-ffcc4d?style=flat)](https://huggingface.co/stepfun-ai/GOT-OCR-2.0-hf)
 [![Upstream GitHub](https://img.shields.io/badge/Upstream%20GitHub-Ucas--HaoranWei%2FGOT--OCR2.0-181717?style=flat&logo=github&logoColor=white)](https://github.com/Ucas-HaoranWei/GOT-OCR2.0)
