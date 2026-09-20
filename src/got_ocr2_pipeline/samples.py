@@ -10,7 +10,7 @@ The default sample is drawn from the Belfort-line dataset (Teklia; the minutes o
 converted to parquet by the Hugging Face Hub at an immutable revision: the first ``CORPUS_ROW_GROUPS`` row groups of
 the test shard are read with HTTPS range requests (about 5.5 MB each; the shard's declared size is checked first and
 every row group's decoded content is refused unless its SHA-256 matches the pin). Every line image is 128 px tall;
-widths run from about 180 to 9,000 px. The domain gap to the model's printed-text training distribution is the point
+widths run from about 145 to 9,000 px. The domain gap to the model's printed-text training distribution is the point
 of the sample: the frozen model reads almost none of it.
 """
 # ruff: noqa: E501  -- record and pin literals are kept on single lines
@@ -32,7 +32,7 @@ from PIL import Image
 
 from .pipeline import MODEL_ID, normalise_text, validate_image
 
-CORPUS_NAME = "Belfort-line (test split), first four parquet row groups"
+CORPUS_NAME = "Belfort-line (test split), first eight parquet row groups"
 CORPUS_REPO = "Teklia/Belfort-line"
 CORPUS_REVISION = "c4a74bbd39f2df314752e7e6026649a39d365cbb"  # refs/convert/parquet commit on the Hub
 CORPUS_FILE = "default/test/0000.parquet"
@@ -57,7 +57,7 @@ DEFAULT_CACHE_DIR = Path("weights") / "belfort"
 
 SAMPLE_SEED = 42
 SAMPLE_SPLIT = {"train": 600, "validation": 60, "test": 140}  # of the 800 lines the eight row groups hold
-SAMPLE_DIGEST = "PENDING"  # dataset_digest over the three default splits together; tests pin it
+SAMPLE_DIGEST = "b7e1dd684691a0eedb63a609311f4964e7732e5c1a8d254fe4e1293a8cd0964d"  # dataset_digest over the three default splits together; tests pin it
 MIN_RECORDS = 8
 MAX_RECORDS = 5_000
 MIN_TEXT_CHARS = 1
