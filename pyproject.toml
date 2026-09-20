@@ -1,7 +1,7 @@
 [project]
 name = "got-ocr2-pipeline"
 version = "0.1.0"
-description = "DIMER inference pipeline for GOT-OCR 2.0 optical character recognition (plain and formatted text)"
+description = "DIMER pipeline for GOT-OCR 2.0 optical character recognition (plain and formatted text) with bounded fine-tuning on transcribed lines"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
@@ -15,6 +15,7 @@ dependencies = [
   "numpy==2.5.3",
   "pillow==11.3.0",
   "huggingface-hub==0.36.2",
+  "pyarrow==25.0.1",
 ]
 [project.optional-dependencies]
 dev = ["pytest==8.4.2", "ruff==0.16.6"]
