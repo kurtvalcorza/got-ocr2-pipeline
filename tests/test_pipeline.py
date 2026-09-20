@@ -128,10 +128,10 @@ TEXT = "NOTICE OF ANNUAL GENERAL MEETING\nThe annual general meeting will be hel
 
 
 def _fake_pipeline(calls: list | None = None) -> GotOcr2Pipeline:
-    def runner(image, mode, max_new_tokens):
+    def runner(images, mode, max_new_tokens):
         if calls is not None:
-            calls.append((image.mode, mode, max_new_tokens))
-        return {"text": TEXT + STOP_STRING + "\n", "new_tokens": 40}
+            calls.append((tuple(image.mode for image in images), mode, max_new_tokens))
+        return [{"text": TEXT + STOP_STRING + "\n", "new_tokens": 40} for _ in images]
 
     return GotOcr2Pipeline(runner, "cpu", "float32", "injected")
 
@@ -151,7 +151,7 @@ def test_recognize_output_fields_and_defaults():
     }
     assert (result["model_id"], result["model_revision"]) == (MODEL_ID, MODEL_REVISION)
     assert (result["device"], result["dtype"], result["source"]) == ("cpu", "float32", "injected")
-    assert calls == [("RGB", DEFAULT_MODE, DEFAULT_MAX_NEW_TOKENS)]
+    assert calls == [(("RGB",), DEFAULT_MODE, DEFAULT_MAX_NEW_TOKENS)]
 
 
 def test_recognize_reports_truncation_and_format_mode():
@@ -168,6 +168,8 @@ def test_recognize_rejects_bad_inputs():
         pipe.recognize(Image.new("RGB", (MIN_IMAGE_SIDE - 1, 64)))
     with pytest.raises(ValueError, match="MAX_IMAGE_SIDE"):
         pipe.recognize(Image.new("RGB", (MAX_IMAGE_SIDE + 1, 64)))
+    with pytest.raises(ValueError, match="MAX_IMAGE_PIXELS"):
+        pipe.recognize(Image.new("RGB", (8192, 4096)))
     with pytest.raises(ValueError, match="MODES"):
         pipe.recognize(Image.new("RGB", (64, 64)), mode="markdown")
     with pytest.raises(TypeError, match="mode must be a str"):
@@ -179,6 +181,30 @@ def test_recognize_rejects_bad_inputs():
 
 
 def test_recognize_rejects_malformed_runner_output():
-    pipe = GotOcr2Pipeline(lambda *args: {"tokens": 1}, "cpu")
+    pipe = GotOcr2Pipeline(lambda *args: [{"tokens": 1}], "cpu")
     with pytest.raises(RuntimeError, match="text"):
         pipe.recognize(Image.new("RGB", (64, 64)))
+    pipe = GotOcr2Pipeline(lambda images, *args: [{"text": "a"}] * (len(images) + 1), "cpu")
+    with pytest.raises(RuntimeError, match="per image"):
+        pipe.recognize(Image.new("RGB", (64, 64)))
+
+
+def test_transcribe_batches_and_orders():
+    calls: list = []
+    pipe = _fake_pipeline(calls)
+    items = pipe.transcribe([Image.new("RGB", (64, 64))] * 5, batch_size=2, max_new_tokens=64)
+    assert [len(c[0]) for c in calls] == [2, 2, 1] and all(c[1] == DEFAULT_MODE and c[2] == 64 for c in calls)
+    assert len(items) == 5
+    assert all(i["text"] == TEXT and i["new_tokens"] == 40 and i["truncated"] is False for i in items)
+    with pytest.raises(ValueError, match="batch_size"):
+        pipe.transcribe([Image.new("RGB", (64, 64))], batch_size=0)
+
+
+def test_model_backed_methods_refuse_injected_runner(tmp_path):
+    pipe = _fake_pipeline()
+    with pytest.raises(RuntimeError, match="injected"):
+        pipe.adapt([], None)
+    with pytest.raises(RuntimeError, match="injected"):
+        pipe.save_artifact(tmp_path)
+    with pytest.raises(RuntimeError, match="injected"):
+        pipe.load_artifact(tmp_path)
