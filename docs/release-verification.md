@@ -108,18 +108,18 @@ Before changing the registry status from `Candidate` to `Release-grade`:
      `True`, `outputs/…_page_frozen.txt` written and the per-image `evaluation_report` verdict `sample-sanity` (the
      inference-only card recorded a character error rate of 0.0 on this page — an observation, not an assertion);
    - Section 6: the empty baseline (CER 1.0 exactly), the constant-transcript baseline (≈ 1.0) and the frozen model's
-     test rates (≈ @P:FROZEN_CER@ CER / @P:FROZEN_WER@ WER in the Tesla T4 build record, hypotheses about
-     @P:FROZEN_HYP_RATIO@ times the reference length) with four hypotheses printed under their references;
+     test rates (≈ 1.345 CER / 1.780 WER in the Tesla T4 build record, hypotheses about
+     1.6 times the reference length) with four hypotheses printed under their references;
    - Section 7: `pipe.adapt` printing epoch 0 as the frozen model, 51,401,728 trainable of 560,528,640 parameters,
      `first_trainable_layer` 20, and a six-epoch history with the validation CER falling (build record:
-     @P:VAL_CURVE@, `best_epoch` @P:BEST_EPOCH@);
+     1.554 → 0.875 / 0.886 / 0.707 / 0.634 / 0.657 / 0.788, `best_epoch` 4);
    - Section 8: `pipe.evaluate` on the validation and test splits with the four-way comparison, the hypothesis
      lengths and `outputs/…_evaluation_report.json` written (the cell asserts the adapted test CER is below the frozen
-     one and below 1.0 — @P:ADAPTED_CER@ against @P:FROZEN_CER@ in the build record, WER @P:FROZEN_WER@ →
-     @P:ADAPTED_WER@; the adapted model also clears the constant baseline, reported, not asserted);
+     one and below 1.0 — 0.759 against 1.345 in the build record, WER 1.780 →
+     1.017; the adapted model also clears the constant baseline, reported, not asserted);
    - Section 9: six example panels under `outputs/…_examples/`; the page re-read by the adapted model with the
      `sample-sanity` report and `outputs/…_page_adapted.txt` (build record: character error rate
-     @P:PAGE_CER_ADAPTED@ after adaptation against 0.0 before — a recorded cost, not an assertion);
+     0.000 after adaptation, as before — an observation, not an assertion);
      `pipe.save_artifact` writing `outputs/…_adapter/{adapter.safetensors,manifest.json}` (49 tensors, about 206 MB)
      and `GotOcr2Pipeline.from_artifact` reloading it with 8/8 identical transcripts on eight test lines (the cell
      asserts it); `outputs/…_result.json` written with `NOTEBOOK_SOURCE`, the model identity and licence, the
@@ -167,7 +167,7 @@ training distribution, which is why the frozen model scores above the empty base
 printed-looking text for strokes it cannot read) and why the gain is large — it is a repair of a domain gap, not evidence
 about other hands or scripts; the rates are uncapped micro CER/WER over one crowdsourced transcription and the notebook
 says so; the 60-line validation split selects the epoch; the vision encoder is frozen, so what it cannot resolve in a
-128-px line squashed into 1024×1024 stays unread; and the adapted decoder loses accuracy on the printed page it read
-perfectly before, a recorded cost of the specialisation. Greedy decoding is deterministic on a fixed device and dtype,
+128-px line squashed into 1024×1024 stays unread; and the adapted decoder still read the printed page exactly (one page —
+not evidence against forgetting elsewhere). Greedy decoding is deterministic on a fixed device and dtype,
 but the training of four decoder layers is not bit-reproducible across GPUs, so a Kaggle number a few hundredths off
 the build record is the expected spread, not a finding.
