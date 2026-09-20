@@ -66,6 +66,10 @@ MIN_SCORED_RECORDS = 50  # below this a scored set is labelled a small sample
 MAX_EVAL_RECORDS = 5_000
 EVAL_BATCH_SIZE = 8
 CACHE_BATCH_SIZE = 4  # images per frozen-prefix forward while caching hidden states
+# The vision tower is a SAM-style ViT with eager attention over 4,096 patch tokens: its global-attention layers
+# materialise one 4096x4096 float32 matrix per head per image (about 0.8 GB), so images go through it one at a time
+# whatever the batch size; the decoder still runs the batch at once.
+VISION_BATCH_SIZE = 1
 GRAD_CLIP = 1.0
 _TRAINABLE_FIRST_LAYER = DECODER_LAYERS - TRAINABLE_LAYERS
 _TRAINABLE_PREFIXES = tuple(f"model.language_model.layers.{i}." for i in range(_TRAINABLE_FIRST_LAYER, DECODER_LAYERS)) + ("model.language_model.norm.",)
@@ -446,6 +450,16 @@ class GotOcr2Pipeline:
             param.requires_grad_(False)
         pad_id = processor.tokenizer.pad_token_id
         stop_id = processor.tokenizer.convert_tokens_to_ids(STOP_STRING)
+        vision_features = model.model.get_image_features
+
+        def chunked_image_features(pixel_values: Any, **kwargs: Any) -> Any:
+            """Bound the vision tower's attention memory: `VISION_BATCH_SIZE` images per forward, results concatenated."""
+            if pixel_values.shape[0] <= VISION_BATCH_SIZE:
+                return vision_features(pixel_values=pixel_values, **kwargs)
+            chunks = [vision_features(pixel_values=pixel_values[i : i + VISION_BATCH_SIZE], **kwargs) for i in range(0, pixel_values.shape[0], VISION_BATCH_SIZE)]
+            return torch.cat(chunks, dim=0)
+
+        model.model.get_image_features = chunked_image_features
 
         def runner(images: Sequence[Image.Image], mode: str, max_new_tokens: int) -> list[dict[str, Any]]:
             inputs = processor(list(images), return_tensors="pt", padding=True, format=(mode == "format"))
@@ -656,8 +670,12 @@ class GotOcr2Pipeline:
             embeddings = language_model.rotary_emb(hidden, position_ids)
             for layer in language_model.layers[first:]:
                 hidden = layer(hidden, attention_mask=None, position_ids=position_ids, position_embeddings=embeddings)
-            logits = model.lm_head(language_model.norm(hidden))
-            return torch.nn.functional.cross_entropy(logits[:, :-1].reshape(-1, logits.shape[-1]).float(), labels[:, 1:].reshape(-1), ignore_index=-100)
+            # logits only where a transcript token is predicted (the prompt positions carry no loss): the same
+            # cross-entropy as the full model's, without a batch x length x vocabulary logit tensor
+            targets = labels[:, 1:]
+            keep = targets != -100
+            logits = model.lm_head(language_model.norm(hidden[:, :-1][keep]))
+            return torch.nn.functional.cross_entropy(logits.float(), targets[keep])
 
         try:
             # 1. cache the frozen prefix: the hidden states entering the first trainable layer, per line
