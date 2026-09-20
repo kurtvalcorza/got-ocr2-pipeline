@@ -38,7 +38,7 @@ CORPUS_REVISION = "c4a74bbd39f2df314752e7e6026649a39d365cbb"  # refs/convert/par
 CORPUS_FILE = "default/test/0000.parquet"
 CORPUS_BYTES = 210_579_166
 CORPUS_ROWS = 3_819
-CORPUS_ROW_GROUPS = 4  # of 39; 100 lines each
+CORPUS_ROW_GROUPS = 8  # of 39; 100 lines each
 CORPUS_LICENSE = "MIT (Teklia; Belfort municipal council minutes, Zenodo record 8041668; Tarride et al. 2023, https://doi.org/10.1145/3604951.3605517)"
 CORPUS_LANGUAGE = "fr"
 CORPUS_URL = f"https://huggingface.co/datasets/{CORPUS_REPO}/resolve/{CORPUS_REVISION}/{CORPUS_FILE}"
@@ -48,12 +48,16 @@ ROW_GROUP_PINS: dict[int, tuple[str, int]] = {
     1: ("c9d3b52013933c803f4886edbce68da0ae483347a4a6ff3e0f5ced1db4a7e653", 5_465_901),
     2: ("6e0578a90a07a9e25e65b765881d3fa33d6a797624425e01026980d7287f0bf6", 5_379_166),
     3: ("00cdfb7aabe924f31b9f1bb1ba4849040051e5619567b68bf99fdcbcab15131a", 5_821_303),
+    4: ("fc063442fb20e7a60c2533ab44dcc69a22ad59f5ce24921fe6af5f53ceab7e1a", 5_163_559),
+    5: ("2d7e29331bd4e93e0c8a1caa9a83b8f1ede9b17af6dae9377b83f56c56f05689", 4_713_140),
+    6: ("49423d91780cb184c4b0069630e85acccb314a113256ced9692a5138c4782ef1", 5_069_794),
+    7: ("3a010831456f185399579b4ecf9d46222f95368c3cdbbc2ff103a258b9c16e2f", 5_309_891),
 }
 DEFAULT_CACHE_DIR = Path("weights") / "belfort"
 
 SAMPLE_SEED = 42
-SAMPLE_SPLIT = {"train": 280, "validation": 40, "test": 80}  # of the 400 lines the four row groups hold
-SAMPLE_DIGEST = "10aece2bc2b1465de7e4b9b06e76825f3743eec688659ba72aba2e197fa3497e"  # dataset_digest over the three default splits together; tests pin it
+SAMPLE_SPLIT = {"train": 600, "validation": 60, "test": 140}  # of the 800 lines the eight row groups hold
+SAMPLE_DIGEST = "PENDING"  # dataset_digest over the three default splits together; tests pin it
 MIN_RECORDS = 8
 MAX_RECORDS = 5_000
 MIN_TEXT_CHARS = 1

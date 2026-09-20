@@ -140,9 +140,9 @@ def test_digests_and_split_disjointness():
 
 
 def test_pins_and_split_sizes():
-    assert sorted(sm.ROW_GROUP_PINS) == list(range(sm.CORPUS_ROW_GROUPS)) == [0, 1, 2, 3]
-    assert all(len(digest) == 64 and total > 5_000_000 for digest, total in sm.ROW_GROUP_PINS.values())
-    assert sum(SAMPLE_SPLIT.values()) == 100 * sm.CORPUS_ROW_GROUPS == 400
+    assert sorted(sm.ROW_GROUP_PINS) == list(range(sm.CORPUS_ROW_GROUPS)) == list(range(8))
+    assert all(len(digest) == 64 and total > 4_500_000 for digest, total in sm.ROW_GROUP_PINS.values())
+    assert sum(SAMPLE_SPLIT.values()) == 100 * sm.CORPUS_ROW_GROUPS == 800
     assert sm.CORPUS_URL.startswith(f"https://huggingface.co/datasets/{sm.CORPUS_REPO}/resolve/{sm.CORPUS_REVISION}/") and len(sm.CORPUS_REVISION) == 40
     assert "MIT" in sm.CORPUS_LICENSE and sm.CORPUS_LANGUAGE == "fr"
 

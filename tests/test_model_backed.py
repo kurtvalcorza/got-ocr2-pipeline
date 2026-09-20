@@ -21,6 +21,7 @@ from got_ocr2_pipeline import (
     WEIGHT_FILE,
     GotOcr2Pipeline,
 )
+from got_ocr2_pipeline.pipeline import _TRAINABLE_PREFIXES
 
 torch = pytest.importorskip("torch")
 pytest.importorskip("transformers")
@@ -38,6 +39,16 @@ def _record(i, size=(1024, 320)):
     return {"id": f"line{i:02d}", "image": image, "text": LINES[i]}
 
 
+@pytest.fixture(autouse=True)
+def _release_memory():
+    yield
+    import gc
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 @pytest.fixture(scope="module")
 def records():
     return [_record(i) for i in range(16)]
@@ -50,7 +61,7 @@ def pipe():
 
 def test_model_facts_batched_recognition_and_frozen_evaluation(pipe, records):
     assert sum(p.numel() for p in pipe._model.parameters()) == PARAMETER_COUNT
-    assert sum(p.numel() for n, p in pipe._model.named_parameters() if n.startswith(("model.language_model.layers.2", "model.language_model.norm."))) == ADAPTER_PARAMETERS
+    assert sum(p.numel() for n, p in pipe._model.named_parameters() if n.startswith(_TRAINABLE_PREFIXES)) == ADAPTER_PARAMETERS
     assert pipe.weight_sha256 is not None and len(pipe.weight_sha256) == 64 and pipe.dtype == "float32"
     encoded = pipe._processor([records[0]["image"], records[1]["image"]], return_tensors="pt", padding=True)
     assert tuple(encoded["input_ids"].shape) == (2, PLAIN_PROMPT_TOKENS) and bool(encoded["attention_mask"].all())
@@ -69,7 +80,7 @@ def test_one_epoch_adaptation_and_artifact_round_trip(pipe, records, tmp_path):
     assert result["n_trainable"] == ADAPTER_PARAMETERS and result["n_total"] == PARAMETER_COUNT and result["first_trainable_layer"] == 20
     assert result["history"][0]["note"] == "frozen model" and result["history"][1]["train_loss"] > 0.0
     assert set(result["history"][1]["val"]) == {"cer", "wer", "cer_macro", "exact_match", "n"} and result["best_epoch"] in (0, 1)
-    assert all(n.startswith(("model.language_model.layers.2", "model.language_model.norm.")) for n in result["trainable_names"])
+    assert all(n.startswith(_TRAINABLE_PREFIXES) for n in result["trainable_names"])
     assert not any(n.startswith(("model.vision_tower", "model.multi_modal_projector", "model.language_model.embed_tokens", "lm_head")) for n in result["trainable_names"])
     artifact = pipe.save_artifact(tmp_path / "adapter", {"note": "test"})
     manifest = json.loads((artifact / "manifest.json").read_text(encoding="utf-8"))

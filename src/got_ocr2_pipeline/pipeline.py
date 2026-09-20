@@ -836,7 +836,17 @@ class GotOcr2Pipeline:
         weights_dir: str | Path | None = None,
         allow_download: bool = False,
     ) -> GotOcr2Pipeline:
-        """Load the verified base snapshot, then overlay the adapter (verified before deserialising)."""
+        """Check the adapter manifest against the base snapshot's recorded weight digest, load the verified base, then
+        overlay the adapter (checked again, and the tensor set, before deserialising). A refused manifest never loads
+        a model."""
+        artifact = Path(artifact_dir)
+        manifest_path = artifact / ADAPTER_MANIFEST
+        if not manifest_path.is_file():
+            raise FileNotFoundError(f"artifact manifest missing: {manifest_path}")
+        with open(manifest_path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        root = Path(weights_dir) if weights_dir is not None else DEFAULT_WEIGHTS_DIR
+        _check_artifact_manifest(manifest, artifact, _weight_digest(root) or "")
         pipe = cls.from_pretrained(device=device, weights_dir=weights_dir, allow_download=allow_download)
         pipe.load_artifact(artifact_dir)
         return pipe
