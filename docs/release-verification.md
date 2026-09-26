@@ -168,3 +168,30 @@ says so; the 60-line validation split selects the epoch; the vision encoder is f
 not evidence against forgetting elsewhere). Greedy decoding is deterministic on a fixed device and dtype,
 but the training of four decoder layers is not bit-reproducible across GPUs, so a Kaggle number a few hundredths off
 the build record is the expected spread, not a finding.
+
+
+## Supplemental OCR/document-extraction guided update — 2026-09-26
+
+This record applies only to `tutorials/DIMER_OCR_Document_Extraction_Workshop.ipynb`. It remains **Candidate** and inherits no hosted execution evidence from the primary generated E2E notebook. Model/data/runtime pins are unchanged. No real weights or supported hosted models were run for this update.
+
+### Confirmed baseline and local verification
+
+Before editing, the repository release validator passed. Direct execution of the supplemental loader confirmed that a transcript ID such as `../escape` was accepted and later used in output paths, duplicate transcript rows silently replaced earlier values, and extra rows were ignored. ZIP extraction also flattened paths into a reused directory; duplicate basenames could overwrite images and subsequent runs could pick up stale files. An explicit empty OCR reference reached a division by zero in the existing per-row metric function.
+
+The supplemental changes make archive staging and successful output directories unique, reject name/ID/transcript mismatches before models load, use ordinal filenames mapped to retained IDs, and export input/model/runtime provenance. Blank references are supported by a BYOD-only metric wrapper: exact match and edit counts remain defined; CER/WER and length ratio are null because their reference denominators are zero. The canonical evaluator is unchanged. Sequential BYOD model cleanup clears completed exception frames and releases local model references on both success and failure.
+
+Observed local checks:
+
+- `python tools/validate_release_assets.py`: PASS before and after. Its primary generated-notebook parity checks still pass; this is not hosted execution evidence for the supplemental artifact.
+- `python -m pytest --noconftest tests/test_workshop_optional_paths.py -q -o addopts=`: **13 passed**, exit 0. Cases execute the actual supplemental loader, metric wrapper, model orchestration and exports with deterministic model doubles. They cover labelled/unlabelled/blank-reference runs, unsafe IDs, duplicate/missing/extra transcript rows, duplicate IDs, filename-extension identity, ZIP collisions and separate staging, per-run output isolation, model failure/retry with a still-reachable traceback, and PEP 440 CUDA local suffix matching.
+- All supplemental code cells parse as Python; its existing cell identities and all model/data/runtime pins are preserved. No saved hosted outputs are being asserted as evidence for this revision.
+
+### Remaining release gates
+
+1. Record the exact revised commit/blob, clean supported Colab T4 runtime, package/device inventory, cache/start conditions and controls. Execute default Run all through both models, common baselines, held-out Belfort metrics, rendered-page text/structure diagnostics, default probes and all exports. Retain the executed notebook and artifact digests.
+2. Bootstrap now verifies installed public versions and refuses stale pre-imported modules. If needed, use **Runtime → Restart session** to retain installed pins, then Run all. Record it as restart-assisted. Public-version checks do not prove the pin set resolves together; uninterrupted fresh-runtime qualification remains open.
+3. In a separate supported run, stage authorized representative images and a complete `transcripts.csv` outside output directories; set `USE_BYOD=True` and `BYOD_PATH`. Execute actual GOT plain/format and SmolDocling generation, metrics and all native outputs through a fresh `byod/run-*` directory. Verify IDs, digests, token budgets, truncation fields, counts and `report.json`. Include an explicit blank-page reference and confirm null rates with retained edit counts rather than a fabricated zero rate.
+4. In a separate negative run, supply a duplicate archive basename, unsafe ID or missing transcript row. Require its documented early rejection before model loading. Also exercise an incompatible image against the published limits. Retain the input digest/error. The local model-double path does not satisfy full REL12 by itself.
+5. Use the existing budget activity in sequence before each model's release, or compare previously exported `token_budget.csv` rows. It is exploratory on inspected pages and cannot justify a new untouched-test claim. Do not rerun probe cells after their global model objects have been deleted.
+
+There is no `structure.json` input contract in this supplemental implementation. The registry no longer advertises it. BYOD native structured output is exported, but reference-based structural scoring beyond the rendered sample is not claimed.
