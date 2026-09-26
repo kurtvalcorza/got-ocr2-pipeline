@@ -1,0 +1,9 @@
+{
+  "filename": "DIMER_OCR_Document_Extraction_Workshop.ipynb",
+  "cell": 7,
+  "error": "RuntimeError",
+  "observed_loaded_numpy": "2.1.3",
+  "observed_installed_numpy": "2.5.3",
+  "evidence": "Saved error output independently read from the maintainer-supplied notebook. Source file no longer present in Downloads at evidence archival time; no file checksum retained.",
+  "fix": "Pin supplemental notebook NumPy to 2.1.3; retain stale-module guard."
+}
