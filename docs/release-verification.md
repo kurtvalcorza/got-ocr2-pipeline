@@ -202,3 +202,14 @@ There is no `structure.json` input contract in this supplemental implementation.
 The maintainer-supplied run stopped in setup before model execution: NumPy 2.1.3 was already loaded, while the notebook installed 2.5.3. The [failure record](execution-evidence/2026-09-26/colab-setup-failure.json) records the independently inspected error. The supplemental notebook now pins NumPy 2.1.3, preserving the observed Colab kernel version instead of replacing it. Other model/runtime pins are unchanged; stale-module detection remains enabled. Declared upstream requirements permit 2.1.3 (Transformers and datasets require >=1.17; the closed-set SciPy pin requires >=2.0,<2.8).
 
 A regression executes the real setup prefix against a simulated Colab preloaded NumPy and package installer: it reproduces the original restart error before the fix and completes without a restart after it. This is setup regression evidence, not a full model/Colab rerun. A new hosted Run all is still required to discover any downstream issues. Use a fresh runtime for that rerun; the prior failed session already replaced installed packages.
+
+
+### Maintainer-supplied successful Colab run — 2026-09-26
+
+The maintainer supplied the [executed notebook](execution-evidence/2026-09-26/DIMER_OCR_Document_Extraction_Workshop.ipynb) and explicitly authorized merging PR #7. This later record supersedes the earlier default-path setup failure. The file is archived byte-for-byte, SHA-256 `717fae7d2ed0a99ea1cb0c1780b1352fbb6dc03d8eb000fd30d06029037abdac`. All 25 code cells have execution counts, 47 saved outputs and zero saved errors. Executable Python ASTs match commit `61eec6f2e720928c119035d193981c53db7ab659`, tutorial blob `07b870a67486142f23fc1ff18d66d8037009ecbf`. This evidence commit does not change tutorial code.
+
+Scope: Canonical default path: 140 Belfort held-out lines and four rendered pages. Optional BYOD was not exercised. Saved line-level CER/WER exceed 1 for both models, while rendered-page mean CER is 0.065; successful execution is not evidence of uniformly good OCR quality.
+
+Saved runtime: Python 3.13.15, torch 2.14.0+cu130, Transformers 4.57.6, NumPy 2.1.3, CUDA Tesla T4. Execution reaches the final summary/export checks. The separate exported files were not supplied, so their bytes/digests were not independently inspected. Saved counts run sequentially from 1 to 25; runtime freshness and absence of manual restarts/reruns are not independently established by the artifact.
+
+Merge approval and this successful canonical run do not close the remaining optional-path/REL12 qualification gates or imply a blanket gold-standard promotion. Retain the earlier limitations except where this default-path execution directly supersedes them.
