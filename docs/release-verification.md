@@ -284,3 +284,21 @@ This fix follows up the observation above. The rendered pages keep Pillow's defa
 - **User-visible:** the Notice image and reference change (`—` → `-`), so Notice scores from the `335b87b` run are not comparable. The report, invoice and technical-note images and references are identical to `335b87b`, confirmed by pixel and byte comparison.
 - **Checks (offline, not clean-runtime evidence):** 2 new tests. The renderer refuses `—`, `é` and `•` text and accepts drawn bullets; no page reference contains an undrawable character. The panel fallback prints the full texts. A local render with matplotlib's DejaVu Sans shows `é`, `è`, `à`, `ç`, `ï` and `—` drawn correctly.
 - **Still needed:** a hosted run of this head. The Notice page and the panels should be inspected in its saved outputs.
+
+### Maintainer-supplied Colab execution of revision `472841a` — 2026-09-30
+
+- **File:** [`execution-evidence/2026-09-30/DIMER_OCR_Document_Extraction_Workshop_472841a.ipynb`](execution-evidence/2026-09-30/DIMER_OCR_Document_Extraction_Workshop_472841a.ipynb), archived byte-for-byte, SHA-256 `5f57ab4fa4b83723d4d788c4fc7658e4b9e09d5a5a96a68f6067665573c11d40`.
+- **Source match:** all 60 cells have the same ids, order and source as tutorial blob `1996f27cc956343ea74cae63064acbbe2ec1d774` (commit `472841a`), with default settings (`USE_BYOD=False`).
+- **Runtime:** same as the `335b87b` run: Python 3.13.15, torch 2.14.0+cu130, Transformers 4.57.6, NumPy 2.1.3, Tesla T4, float32. Peak GPU memory is unchanged at 4.92 GB (GOT) and 4.08 GB (SmolDocling). Execution counts run 1–25 in order, with no saved errors; the export cell was not re-run.
+- **Comparison with the `335b87b` run:** outputs differ only in cells that changed or that print timings or warnings. The baselines, Belfort metrics for both models, the probes and budget rows, and the report/invoice/technical-note page scores are all identical.
+- **Notice page (changed image):** GOT CER/WER 0.012/0.060 → 0.023/0.119; SmolDocling 0.004/0.015 → 0.012/0.045. The saved preview confirms one cause: GOT reads the subtitle as `Workshop- 26`, attaching the hyphen. Whether the drawn bullets also add model tokens is not visible in the saved outputs, because the full Notice texts were not displayed (`INSPECT_PAGE` was left on `report`). This is inferred, not confirmed. The Notice structure table is unchanged: `list_item` 3/3, error 0.
+
+| Journey | Verdict |
+|---|---|
+| Default Run all through both models, probes and exports | Pass |
+| Glyph fix: Notice renders without boxes (hyphen and drawn bullets); panels use DejaVu Sans with `é ô è` drawn; full panel texts printed | Pass |
+| R1–R3 views and tables (as in the `335b87b` run) | Pass |
+| R4 multi-frame refusal, duplicate-header refusal | Not assessed in this run |
+| BYOD labelled / unlabelled / blank reference; export re-run | Not assessed in this run (`USE_BYOD=False`) |
+
+**Evidence boundary.** Saved outputs were inspected; execution was not independently repeated. BYOD, the input refusals and fresh-runtime execution remain open.
