@@ -243,3 +243,36 @@ Applies only to `tutorials/DIMER_OCR_Document_Extraction_Workshop.ipynb`, review
 1. A hosted T4 Run all of this revision: default path plus `USE_BYOD=True`, with page previews, structure table, paired budget table and `INSPECT_PAGE` view inspected in the saved outputs, and the invoice-page metrics recomputed under renderer v2.
 2. A BYOD run that includes a labelled page, an unlabelled run and an explicit blank reference; separately, a two-frame TIFF and a duplicate-header CSV, each refused before model loading.
 3. The earlier REL12 and fresh-runtime gates above remain open.
+
+### Maintainer-supplied Colab execution of revision `335b87b` — 2026-09-30
+
+- **File:** [`execution-evidence/2026-09-30/DIMER_OCR_Document_Extraction_Workshop_335b87b.ipynb`](execution-evidence/2026-09-30/DIMER_OCR_Document_Extraction_Workshop_335b87b.ipynb), archived byte-for-byte, SHA-256 `29b6e412c5176e31304f6608f84209827a7b65c5424d01b6a49c1475636b2ae9`.
+- **Source match:** all 60 cells have the same ids, order and source as tutorial blob `d321c8e5e7a895945add0c2a5937ca60a5edd093` (commit `335b87b`). No `# @param` value was changed, so this is the default configuration with `USE_BYOD=False`.
+- **Runtime:** Python 3.13.15, torch 2.14.0+cu130, Transformers 4.57.6, NumPy 2.1.3, PyArrow 25.0.1, Tesla T4 (`cuda:0`), float32. Peak GPU memory: GOT 4.92 GB, SmolDocling 4.08 GB.
+- **Execution:** execution counts run 1–25 in order over all 25 code cells, with no saved errors. Freshness and the absence of manual restarts are not independently established by the artifact. The export cell was not re-run.
+
+| Result | 2026-09-26 (renderer v1) | This run (renderer v2) |
+|---|---|---|
+| Belfort CER / WER, GOT-OCR 2.0 | 1.345 / 1.780 | 1.345 / 1.780 |
+| Belfort CER / WER, SmolDocling | 1.439 / 2.491 | 1.439 / 2.491 |
+| Invoice page CER / WER, GOT-OCR 2.0 | 0.244 / 0.293 | **0.003 / 0.017** |
+| Invoice page CER / WER, SmolDocling | 0.244 / 0.293 | **0.007 / 0.034** |
+| Other three pages (CER/WER, both models) | — | identical to 2026-09-26 |
+| Report tables, SmolDocling | `OTSL_cells` 84 | 70 cells, 14 rows, 84 OTSL tokens |
+
+The printed outputs of every cell whose source this revision did not change are identical to the 2026-09-26 run, apart from the kernel temp-file path in a Pillow warning. These cells cover the baselines, Belfort metrics, blank/noise probes and budget rows. The invoice change is the expected R1 effect: under v1, both models' invoice scores mostly measured the reference ordering.
+
+| Journey | Verdict |
+|---|---|
+| Default Run all through both models, probes and exports | Pass |
+| R1 drawing-order references (invoice recomputed under v2) | Pass |
+| R2 visible outputs: page sheet, GOT format blocks, structure table, report DocTags, 4 specialized outputs, paired budget table, `INSPECT_PAGE` view with word differences, 6 inline panels | Pass (all rendered as `display_data` / stream output) |
+| R3 structure table with scored/unscored rows; Notice `list_item` 3/3 | Pass |
+| R4 multi-frame refusal, duplicate-header refusal | Not assessed in this run (offline tests only) |
+| BYOD labelled / unlabelled / blank reference; export re-run | Not assessed in this run (`USE_BYOD=False`) |
+
+The new views expose real-model behaviour that was previously hidden. SmolDocling's `Convert table to OTSL.` on the report page hit the 2048-token budget emitting empty cells (`truncated=True`). Its full-page DocTags recover both report tables.
+
+**Observed, not caused by this revision.** Pillow's bundled default font has no glyphs for `—`, `•` or `é`, so those characters render as boxes. This was confirmed locally: each draws the same box as an unsupported CJK character. On the Notice page the subtitle's em dash is therefore not visible, although the reference contains it, and the bullets show as boxes (they are excluded from the reference). Accented characters in the Belfort example panels show as boxes too. The page pixels are unchanged from renderer v1.
+
+**Evidence boundary.** Saved outputs were inspected; execution was not independently repeated. This run does not qualify BYOD, the input refusals or fresh-runtime execution; those gates stay open.
