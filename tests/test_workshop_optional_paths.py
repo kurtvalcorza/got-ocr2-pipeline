@@ -59,7 +59,8 @@ def setup(tmp_path):
               GOT_MANIFEST={'revision': 'got-fixed'}, SMOL_MANIFEST={'revision': 'smol-fixed'},
               RUNTIME={'test_double': True}, load_got=load, load_smoldoc=load,
               got_generate=generate, smol_generate=generate,
-              torch=SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False)))
+              torch=SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False)), Markdown=None)
+    helpers(7, {'preview', 'show_block'}, ns)
     helpers(9, {'sha256_file'}, ns)
     helpers(11, {'normalise_text'}, ns)
     helpers(13, {'edit_distance', 'words', 'one_metrics'}, ns)
