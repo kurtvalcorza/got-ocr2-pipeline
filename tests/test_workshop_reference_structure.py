@@ -29,7 +29,7 @@ INVOICE = ('INVOICE Invoice Number: INV-2026-0926 Date: 26 September 2026 '
            'Description Qty Unit Price Amount Document scan 3 120.00 360.00 OCR review 2 250.00 500.00 '
            'Structure check 1 400.00 400.00 Subtotal: 1,260.00 Tax: 151.20 Total: 1,411.20 '
            'Payment note: This synthetic invoice is for OCR and document extraction testing only.')
-NOTICE = ('PUBLIC NOTICE Document Processing Workshop — 26 September 2026 The records office will '
+NOTICE = ('PUBLIC NOTICE Document Processing Workshop - 26 September 2026 The records office will '
           'conduct a scheduled document digitization activity this Friday. Participants should bring '
           'one sample page and verify all extracted text against the original document. Generated OCR '
           'output may contain omissions, substitutions, repetitions, or invented text and must be '
@@ -70,6 +70,32 @@ def test_invoice_reference_follows_drawing_order(tmp_path):
         'Quezon City', 'Quezon City Subtotal: 1,260.00 Tax: 151.20 Total: 1,411.20')
     assert ns['one_metrics'](pages['invoice']['reference_text'], reordered)['cer'] > 0
     assert pages['notice']['expected_counts']['list_item'] == 3
+
+
+def test_renderer_refuses_characters_the_font_cannot_draw(tmp_path):
+    ns = base_ns(tmp_path)
+    page = ns['PageText'](Image.new('RGB', (200, 60), 'white'))
+    for text in ('Workshop — 2026', 'régulariser', '• item'):
+        with pytest.raises(ValueError, match='default font cannot draw'):
+            page.text((0, 0), text, 20)
+    page.text((0, 0), 'item', 20, bullet=True)
+    assert page.parts == ['item']
+    for pid, page in ns['pages'].items():
+        assert not ns['missing_glyphs'](page['reference_text'], 20), pid
+
+
+def test_panels_print_full_text_with_font_fallback(tmp_path, capsys, monkeypatch):
+    import importlib.util
+    ns = base_ns(tmp_path)
+    monkeypatch.setattr(importlib.util, 'find_spec', lambda name: None)
+    record = {'text': "régulariser l'achat", 'image': Image.new('RGB', (300, 40), 'white')}
+    ns.update(OUT_ROOT=tmp_path, RUN_BELFORT=True, test_records=[record] * 116,
+              got_belfort_items=[{'text': 'GOT é'}] * 116, smol_belfort_items=[{'text': ''}] * 116)
+    exec(CELLS['9165c76c'], ns)
+    out = capsys.readouterr().out
+    assert 'Panel font: Pillow default; accented letters may show as boxes' in out
+    assert out.count("REF:  régulariser l'achat") == 6 and 'GOT:  GOT é' in out
+    assert len(list((tmp_path/'belfort_examples').glob('example_*.png'))) == 6
 
 
 def test_word_diff_names_the_changed_words(tmp_path):

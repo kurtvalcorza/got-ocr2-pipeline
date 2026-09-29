@@ -276,3 +276,11 @@ The new views expose real-model behaviour that was previously hidden. SmolDoclin
 **Observed, not caused by this revision.** Pillow's bundled default font has no glyphs for `—`, `•` or `é`, so those characters render as boxes. This was confirmed locally: each draws the same box as an unsupported CJK character. On the Notice page the subtitle's em dash is therefore not visible, although the reference contains it, and the bullets show as boxes (they are excluded from the reference). Accented characters in the Belfort example panels show as boxes too. The page pixels are unchanged from renderer v1.
 
 **Evidence boundary.** Saved outputs were inspected; execution was not independently repeated. This run does not qualify BYOD, the input refusals or fresh-runtime execution; those gates stay open.
+
+### Glyph coverage fix after the `335b87b` run — 2026-09-30
+
+This fix follows up the observation above. The rendered pages keep Pillow's default font. The renderer now refuses any string containing a character that font draws as an empty box. Detection compares each glyph's mask with the mask of an unassigned code point. The Notice subtitle uses an ASCII hyphen, and its bullets are drawn as filled circles rather than text. Section 25 panels use DejaVu Sans when the runtime ships it with matplotlib; otherwise they fall back to the default font and say so. Each panel's full reference, GOT and SmolDocling text is also printed.
+
+- **User-visible:** the Notice image and reference change (`—` → `-`), so Notice scores from the `335b87b` run are not comparable. The report, invoice and technical-note images and references are identical to `335b87b`, confirmed by pixel and byte comparison.
+- **Checks (offline, not clean-runtime evidence):** 2 new tests. The renderer refuses `—`, `é` and `•` text and accepts drawn bullets; no page reference contains an undrawable character. The panel fallback prints the full texts. A local render with matplotlib's DejaVu Sans shows `é`, `è`, `à`, `ç`, `ï` and `—` drawn correctly.
+- **Still needed:** a hosted run of this head. The Notice page and the panels should be inspected in its saved outputs.
