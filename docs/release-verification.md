@@ -213,3 +213,33 @@ Scope: Canonical default path: 140 Belfort held-out lines and four rendered page
 Saved runtime: Python 3.13.15, torch 2.14.0+cu130, Transformers 4.57.6, NumPy 2.1.3, CUDA Tesla T4. Execution reaches the final summary/export checks. The separate exported files were not supplied, so their bytes/digests were not independently inspected. Saved counts run sequentially from 1 to 25; runtime freshness and absence of manual restarts/reruns are not independently established by the artifact.
 
 Merge approval and this successful canonical run do not close the remaining optional-path/REL12 qualification gates or imply a blanket gold-standard promotion. Retain the earlier limitations except where this default-path execution directly supersedes them.
+
+
+## Supplemental OCR workshop — re-review v2 fixes — 2026-09-30
+
+Applies only to `tutorials/DIMER_OCR_Document_Extraction_Workshop.ipynb`, reviewed at `main` `7e7eb791fb032a27683e705b90656f7196c1508d` (tutorial blob `fbe68766b128789905cb299fc7957e50946971b0`). Status stays **Candidate**. Model, data and runtime pins are unchanged. The re-review withdrew its earlier shape-disabled finding; no change was made for it, and the four shape/budget flag combinations are now covered by a regression test.
+
+| Finding | Change | Cells |
+|---|---|---|
+| R1 invoice reference order | The renderer records each visible string in the same call that draws it (`PageText`), so the reference follows drawing order: top to bottom, left to right, tables row by row, punctuation as drawn, bullet glyphs excluded. The policy is stated in Section 8 and exported in `provenance.json` with per-page reference digests (renderer v2). | `6bcb8c18`, `c7241d47`, `8cb50171` |
+| R2 learner-visible results | Page thumbnails and reference previews (§8); GOT plain previews and native `format` output (§12); scored structure table and the report's native DocTags (§17); each specialized instruction's output (§18); a paired GOT/SmolDocling budget table (§19); an `INSPECT_PAGE` view with the page image, reference, both texts and the first word-level differences (§21); inline Belfort panels (§25); a BYOD preview of the first three inputs (§26). Long texts are truncated with the path of the full exported file. | `f5cd762a`, `f859a00b`, `404be7e1`, `538a6cda`, `ba8e3722`, `1581facc`, `e46ae80f`, `9165c76c`, `63fd18ce` |
+| R3 structural count semantics | `n_table_cells` now counts logical cells (`fcel ecel ched rhed srow`); `n_table_rows` counts `nl`; `n_table_grid_positions` adds merge continuations; `n_otsl_tokens` keeps the former all-token aggregate. The Notice expects three `list_item`s. Element types that a page does not list are exported as `scored=False` with empty expected count and error, instead of being scored against an implicit zero. | `b6ccbfdc`, `0bdb25d0`, `538a6cda`, `6bcb8c18` |
+| R4 multi-page TIFF | `load_byod` refuses any image with more than one frame before a model loads. | `63fd18ce`, `c059ed61` |
+| Minor: duplicate transcript headers | `transcripts.csv` with repeated column names, or any row whose field count differs from the header, is refused before a model loads. An explicit empty text field is still a valid blank-page reference. | `63fd18ce` |
+
+**User-visible changes.** The invoice reference text changes; the other three pages' references and all four page images are unchanged (checked below). `smoldocling_structure.csv` gains a `scored` column and lists only scored types plus observed unscored types, not every tag. `token_budget.csv` gains `n_table_rows` and `n_otsl_tokens`, and its `n_table_cells` values now exclude row delimiters. `smoldocling_summary.json` gains the new count keys. BYOD inputs that were previously accepted are now refused: multi-frame images, duplicate CSV column names, and rows shorter or longer than the header (a row that omitted a trailing `id` field was previously accepted).
+
+**Historical results.** The 2026-09-26 hosted run used the renderer v1 reference. Its saved invoice-page scores were CER 0.244 / WER 0.293 for both GOT-OCR 2.0 and SmolDocling. Under that reference, a faithful drawing-order transcript already scored CER 0.242 / WER 0.276, so the invoice scores mainly measured the reference ordering, not recognition. Its `OTSL_cells` values counted row delimiters. Those saved values stay as recorded and are not relabelled; comparable numbers need a hosted run of this revision.
+
+### Offline verification (not clean-runtime evidence)
+
+- **Default-path parity.** Executing Section 8 from the reviewed and the revised notebook renders pixel-identical images for all four pages. Notice, report and technical-note references are byte-identical. The invoice reference equals the review's drawing-order transcript.
+- **Review acceptance checks.** The reviewer's `run_recheck.py`, with its assertions inverted to the acceptance checks and the runtime display helpers added to its namespace, passes on the revised notebook: invoice/report/technical CER and WER 0; the 2×2 fixture reports 4 cells and 2 rows; three list items give zero list error; two-frame TIFF refused, single-frame accepted; `file,text,text` refused; recovered-text and native-markup markers visible. Probe-cell generator calls for the four shape/budget combinations match the review (2/2, 6/7, 6/6, 10/11).
+- **Tests.** New `tests/test_workshop_reference_structure.py` (18 cases) executes the notebook's own cells with deterministic generation stand-ins. Against the reviewed notebook, 15 of these cases fail and 3 pass (the budget-off probe combinations); against the revised notebook, all pass. Full suite in a CPU-only environment with CI's pins: 88 passed, 2 skipped, exit 0 (baseline 70 passed, 2 skipped). `ruff check src tests tools`, `tools/validate_release_assets.py` and `tools/build_notebook.py --check` pass.
+- Nothing ran pretrained weights, a real tokenizer or processor, Belfort data, CUDA or Colab. The rich-display paths (`IPython.display`) were exercised only through their plain-text fallback.
+
+### Remaining gates
+
+1. A hosted T4 Run all of this revision: default path plus `USE_BYOD=True`, with page previews, structure table, paired budget table and `INSPECT_PAGE` view inspected in the saved outputs, and the invoice-page metrics recomputed under renderer v2.
+2. A BYOD run that includes a labelled page, an unlabelled run and an explicit blank reference; separately, a two-frame TIFF and a duplicate-header CSV, each refused before model loading.
+3. The earlier REL12 and fresh-runtime gates above remain open.
