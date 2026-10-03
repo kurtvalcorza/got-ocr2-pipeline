@@ -1,6 +1,11 @@
 import builtins
+import sys
+from pathlib import Path
 
 import pytest
+
+# The workshop tests import the carried stage file and its carrier tool from tools/.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 
 @pytest.fixture
