@@ -60,6 +60,10 @@ SAMPLE_SPLIT = {"train": 600, "validation": 60, "test": 140}  # of the 800 lines
 SAMPLE_DIGEST = "b7e1dd684691a0eedb63a609311f4964e7732e5c1a8d254fe4e1293a8cd0964d"  # dataset_digest over the three default splits together; tests pin it
 MIN_RECORDS = 8
 MAX_RECORDS = 5_000
+# BYOD (review GOT-m1): the notebook selects the epoch on validation and scores and reload-checks the test split, so a
+# split dataset needs at least this many validation and test records besides MIN_RECORDS training records.
+MIN_VAL_RECORDS = 2
+MIN_TEST_RECORDS = 2
 MIN_TEXT_CHARS = 1
 MAX_TEXT_CHARS = 512
 _ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
@@ -193,7 +197,11 @@ def read_corpus(groups: Mapping[int, Sequence[Mapping[str, Any]]]) -> list[dict[
 def build_sample_dataset(
     records: Sequence[Mapping[str, Any]], *, seed: int = SAMPLE_SEED, sizes: Mapping[str, int] | None = None
 ) -> dict[str, list[dict[str, Any]]]:
-    """Seeded line-level draw: shuffle the records and cut `sizes` (train / validation / test) in order."""
+    """Seeded line-level draw: shuffle the records and cut `sizes` (train / validation / test) in order.
+
+    The split unit is the line image: no image is in two splits, but the parquet carries no page or writer field, so
+    lines cut from one page can land in different splits and the held-out rates are a same-collection estimate, not a
+    page-disjoint one (review GOT-M3; `transcript_overlap` reports the verbatim transcript repeats)."""
     sizes = dict(sizes or SAMPLE_SPLIT)
     pool = [dict(r) for r in records]
     random.Random(seed).shuffle(pool)
@@ -310,27 +318,76 @@ def check_split_disjoint(splits: Mapping[str, Sequence[Mapping[str, Any]]]) -> d
     return {name: len(records) for name, records in splits.items()}
 
 
+def drop_duplicate_images(records: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Keep the first record of every decoded image; return the kept records and the ids of the dropped duplicates
+    (review GOT-m1: a caller can report what `split_dataset` would otherwise drop silently)."""
+    seen: set[str] = set()
+    kept, dropped = [], []
+    for record in records:
+        key = image_digest(record["image"])
+        if key in seen:
+            dropped.append(str(record["id"]))
+        else:
+            seen.add(key)
+            kept.append(dict(record))
+    return kept, dropped
+
+
+def _split_counts(n: int, val_fraction: float, test_fraction: float) -> tuple[int, int, int]:
+    n_test = max(1, round(n * test_fraction))
+    n_val = round(n * val_fraction)
+    return n - n_test - n_val, n_val, n_test
+
+
+def byod_record_limits(val_fraction: float = 0.15, test_fraction: float = 0.2) -> tuple[int, int]:
+    """Smallest and largest number of distinct images `split_dataset` accepts at these fractions: at least
+    MIN_RECORDS training, MIN_VAL_RECORDS validation and MIN_TEST_RECORDS test records, at most MAX_RECORDS in all."""
+    for n in range(1, MAX_RECORDS + 1):
+        train, val, test = _split_counts(n, val_fraction, test_fraction)
+        if train >= MIN_RECORDS and val >= MIN_VAL_RECORDS and test >= MIN_TEST_RECORDS:
+            return n, MAX_RECORDS
+    raise ValueError("no dataset size gives every split its minimum at these fractions")
+
+
 def split_dataset(
     records: Sequence[Mapping[str, Any]], *, val_fraction: float = 0.15, test_fraction: float = 0.2, seed: int = 0
 ) -> dict[str, list[dict[str, Any]]]:
-    """Seeded shuffle of a BYOD dataset into train/validation/test after de-duplicating images."""
+    """Seeded shuffle of a BYOD dataset into train/validation/test after de-duplicating images.
+
+    The split must leave at least MIN_RECORDS training, MIN_VAL_RECORDS validation and MIN_TEST_RECORDS test records;
+    a refusal names the split, its count and the dataset size that works (`byod_record_limits`) before any model runs
+    (review GOT-m1)."""
     if not (0.0 <= val_fraction < 1.0 and 0.0 < test_fraction < 1.0 and val_fraction + test_fraction < 1.0):
         raise ValueError("fractions must satisfy 0 <= val < 1, 0 < test < 1, val + test < 1")
-    checked = validate_dataset(records)["records"]
-    seen: set[str] = set()
-    unique = []
-    for record in checked:
-        key = image_digest(record["image"])
-        if key not in seen:
-            seen.add(key)
-            unique.append(record)
+    checked = validate_dataset(records, min_records=1)["records"]
+    unique, dropped = drop_duplicate_images(checked)
     random.Random(seed).shuffle(unique)
     n = len(unique)
-    n_test = max(1, round(n * test_fraction))
-    n_val = round(n * val_fraction)
-    if n - n_test - n_val < 1:
-        raise ValueError(f"{n} distinct images are too few to split into train/validation/test")
+    n_train, n_val, n_test = _split_counts(n, val_fraction, test_fraction)
+    needed = (("train", n_train, MIN_RECORDS), ("validation", n_val, MIN_VAL_RECORDS), ("test", n_test, MIN_TEST_RECORDS))
+    short = [(name, have, least) for name, have, least in needed if have < least]
+    if short:
+        name, have, least = short[0]
+        try:
+            low, _high = byod_record_limits(val_fraction, test_fraction)
+            sizes = f"a dataset needs at least {low} distinct images"
+        except ValueError:
+            sizes = "no dataset size gives every split its minimum at these fractions"
+        duplicates = f" ({len(dropped)} duplicate image(s) dropped)" if dropped else ""
+        raise ValueError(
+            f"the {name} split would hold {max(have, 0)} records (at least {least} are required): {len(checked)} records, "
+            f"{n} distinct images{duplicates}, split into train/validation/test as {max(n_train, 0)}/{n_val}/{n_test}; "
+            f"{sizes}. Add records"
+        )
     return {"test": unique[:n_test], "validation": unique[n_test : n_test + n_val], "train": unique[n_test + n_val :]}
+
+
+def transcript_overlap(train: Sequence[Mapping[str, Any]], other: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Ids of the `other` records whose normalised transcript also occurs verbatim in `train` (review GOT-M3: formulaic
+    lines such as "Le Conseil Municipal" repeat across pages, so an image-disjoint split can still test text it trained
+    on)."""
+    seen = {normalise_text(r["text"]) for r in train}
+    return [str(r["id"]) for r in other if normalise_text(r["text"]) in seen]
 
 
 def load_byod_dataset(path: str | Path) -> list[dict[str, Any]]:
@@ -338,15 +395,23 @@ def load_byod_dataset(path: str | Path) -> list[dict[str, Any]]:
     (and optionally `id`); every image file must have a transcript row and every row an image."""
     source = Path(path)
     members: dict[str, bytes] = {}
+    origin: dict[str, str] = {}
+
+    def add(name: str, where: str, data: bytes) -> None:
+        # The archive is flattened (no extractall): two files with one base name would overwrite each other (GOT-m1).
+        if name in members:
+            raise ValueError(f"two files are named {name!r} ({origin[name]} and {where}); the BYOD archive is read without its folders, so every file name must be unique - rename one")
+        members[name], origin[name] = data, where
+
     if source.is_dir():
         for file in sorted(source.rglob("*")):
-            if file.is_file():
-                members[file.name] = file.read_bytes()
+            if file.is_file() and "__MACOSX" not in file.parts:
+                add(file.name, str(file.relative_to(source)), file.read_bytes())
     elif zipfile.is_zipfile(source):
         with zipfile.ZipFile(source) as archive:
             for info in archive.infolist():
-                if not info.is_dir():
-                    members[Path(info.filename).name] = archive.read(info)  # flattened; no extractall
+                if not info.is_dir() and not info.filename.startswith("__MACOSX/"):
+                    add(Path(info.filename).name, info.filename, archive.read(info))
     else:
         raise ValueError(f"{source} is neither a directory nor a zip file")
     if "transcripts.csv" not in members:
