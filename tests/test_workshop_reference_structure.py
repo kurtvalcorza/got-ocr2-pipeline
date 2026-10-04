@@ -1,22 +1,23 @@
 """Re-review v2 checks for the supplemental OCR notebook: authored references, structural
 counts, learner-visible outputs, single-page BYOD input and transcript headers.
 
-Cells are executed from the notebook itself with deterministic generation stand-ins. These are
-offline orchestration checks, not real-model or hosted-runtime evidence.
+Since 2026-10-03 the notebook runs this code as stages of the carried file tools/ocr_workshop.py in its uv
+isolated environment. The stages run here in-process, handing results over as state files exactly as the
+separate stage processes do, with deterministic generation stand-ins; the Belfort panel cell still runs from
+the notebook. These are offline orchestration checks, not real-model or hosted-runtime evidence.
 """
 import ast
 import csv
-import difflib
 import hashlib
 import json
 import re
 from collections import Counter
 from pathlib import Path
 
-import numpy as np
 import pytest
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
+from test_workshop_optional_paths import STAGE_FILE, run_byod, stage_ns
 from test_workshop_optional_paths import pages as byod_pages
 from test_workshop_optional_paths import setup as byod_setup
 
@@ -41,21 +42,9 @@ TECHNICAL = ('TECHNICAL NOTE The following expressions are rendered as plain tex
              'not production measurements.')
 
 
-def defs(cid, names, ns):
-    tree = ast.parse(CELLS[cid])
-    tree.body = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
-    exec(compile(tree, cid, 'exec'), ns)
-
-
 def base_ns(tmp_path):
-    ns = dict(Path=Path, Image=Image, ImageDraw=ImageDraw, ImageFont=ImageFont, np=np, re=re,
-              Counter=Counter, difflib=difflib, hashlib=hashlib, Markdown=None, display=lambda *a: None,
-              OUTPUT_DIR=str(tmp_path/'outputs'))
-    defs('6f347d27', {'normalise_text'}, ns)
-    defs('f5cd762a', {'preview', 'show_block'}, ns)
-    defs('f859a00b', {'edit_distance', 'words', 'one_metrics', 'word_diff'}, ns)
-    exec(CELLS['6bcb8c18'], ns)
-    exec(CELLS['b6ccbfdc'], ns)
+    ns = stage_ns(tmp_path)
+    ns['pages'] = ns['render_pages']()
     return ns
 
 
@@ -89,8 +78,11 @@ def test_panels_print_full_text_with_font_fallback(tmp_path, capsys, monkeypatch
     ns = base_ns(tmp_path)
     monkeypatch.setattr(importlib.util, 'find_spec', lambda name: None)
     record = {'text': "régulariser l'achat", 'image': Image.new('RGB', (300, 40), 'white')}
-    ns.update(OUT_ROOT=tmp_path, RUN_BELFORT=True, test_records=[record] * 116,
-              got_belfort_items=[{'text': 'GOT é'}] * 116, smol_belfort_items=[{'text': ''}] * 116)
+    results = {'got_belfort.json': {'items': [{'text': 'GOT é'}] * 116},
+               'smol_belfort.json': {'items': [{'text': ''}] * 116}}
+    # Kernel helpers of the runtime cell: the staged test lines and the Belfort stages' state files.
+    ns.update(OUT_ROOT=tmp_path, RUN_BELFORT=True, display=lambda *a: None,
+              belfort_split=lambda name: [record] * 116 if name == 'test' else [], state=results.__getitem__)
     exec(CELLS['9165c76c'], ns)
     out = capsys.readouterr().out
     assert 'Panel font: Pillow default; accented letters may show as boxes' in out
@@ -145,22 +137,20 @@ def model_ns(tmp_path, budget=True, shape=True):
         return [dict(doctags=tags, text=ns['doctags_to_text'](tags), instruction=instruction, new_tokens=7,
                      truncated=False, inference_seconds=0.1) for _ in images]
 
-    ns.update(got_generate=got_generate, smol_generate=smol_generate, got_model=None, got_processor=None,
-              got_pad=0, got_stop=1, smol_model=None, smol_processor=None, smol_end=1, smol_pad=0,
-              SMOL_DEFAULT='Convert this page to docling.', GOT_PAGE_MAX_NEW_TOKENS=1024,
-              SMOLDOC_PAGE_MAX_NEW_TOKENS=2048, RUN_PAGE_SUITE=True,
-              RUN_TOKEN_BUDGET_EXPERIMENT=budget, RUN_SHAPE_ROBUSTNESS=shape)
+    ns.update(got_generate=got_generate, smol_generate=smol_generate,
+              load_got=lambda: (None, None, 0, 1, 0.5), load_smoldoc=lambda: (None, None, 1, 0, 0.25),
+              GOT_PAGE_MAX_NEW_TOKENS=1024, SMOLDOC_PAGE_MAX_NEW_TOKENS=2048, RUN_PAGE_SUITE=True,
+              RUN_BELFORT=False, RUN_TOKEN_BUDGET_EXPERIMENT=budget, RUN_SHAPE_ROBUSTNESS=shape)
+    ns['stage_pages']()  # each stage reloads the rendered pages from the files this stage writes
     return ns, calls
 
 
 def test_page_text_structure_and_specialized_outputs_are_shown(tmp_path, capsys):
     ns, _ = model_ns(tmp_path)
-    for cid in ('404be7e1', '538a6cda', 'ba8e3722'):
-        exec(CELLS[cid], ns)
-    ns['page_text_rows'] = ns['got_page_rows'] + ns['smol_page_rows']
+    for stage in ('stage_got_pages', 'stage_smol_pages', 'stage_smol_specialized', 'stage_compare'):
+        ns[stage]()
     for page in ('report', 'invoice'):
-        ns['INSPECT_PAGE'] = page
-        exec(CELLS['e46ae80f'].replace('INSPECT_PAGE="report"', 'INSPECT_PAGE=INSPECT_PAGE'), ns)
+        ns['stage_inspect'](page)
     out = capsys.readouterr().out
     assert 'GOTMARK-plain' in out and 'GOTMARK-format' in out  # GOT plain previews and native format
     assert '<otsl><fcel>a<fcel>b<nl></otsl>' in out  # native DocTags for one structure
@@ -168,20 +158,21 @@ def test_page_text_structure_and_specialized_outputs_are_shown(tmp_path, capsys)
     assert "reference='INVOICE Invoice Number: INV-2026-0926" in out  # a named word-level difference
     assert 'Convert table to OTSL.' in out and out.count('SMOLMARK') >= 8
     assert 'Unscored observed types' in out
-    assert all(r['n_table_cells'] == 2 for r in ns['smol_summaries'].values())
+    assert all(r['n_table_cells'] == 2 for r in ns['load_state']('smol_pages.json')['summaries'].values())
 
 
 @pytest.mark.parametrize('budget', [False, True])
 @pytest.mark.parametrize('shape', [False, True])
 def test_probe_flags_and_paired_budget_table(tmp_path, capsys, budget, shape):
     ns, calls = model_ns(tmp_path, budget, shape)
-    exec(CELLS['a30b91a7'], ns)
-    exec(CELLS['1581facc'], ns)
+    ns['stage_got_probes']()
+    ns['stage_smol_probes']()
     out = capsys.readouterr().out
     assert calls['got'] == 2 + 4*budget + 4*shape and calls['smol'] == 2 + 5*budget + 4*shape
     assert ('Paired token-budget comparison' in out) is budget
     if budget:
-        assert all(r['n_table_cells'] == 2 and r['n_table_rows'] == 1 for r in ns['smol_budget_rows'])
+        smol_budget_rows = ns['load_state']('smol_probes.json')['budget_rows']
+        assert all(r['n_table_cells'] == 2 and r['n_table_rows'] == 1 for r in smol_budget_rows)
         assert re.search(r'GOT-OCR 2\.0\s+256\s+5\s+False', out) and re.search(r'SmolDocling\s+4096\s+7', out)
 
 
@@ -198,11 +189,11 @@ def test_multi_frame_tiff_is_refused_before_model_load(tmp_path, frames):
     multipage_tiff(root/'scan.tiff', frames)
     ns.update(USE_BYOD=True, BYOD_PATH=str(root))
     if frames == 1:
-        exec(CELLS['63fd18ce'], ns)
+        run_byod(ns)
         assert ns['byod_report']['images'] == 1 and state['loads'] == 2
     else:
         with pytest.raises(ValueError, match='2 pages/frames'):
-            exec(CELLS['63fd18ce'], ns)
+            run_byod(ns)
         assert state['loads'] == 0
 
 
@@ -217,7 +208,7 @@ def test_ambiguous_transcripts_are_refused_before_model_load(tmp_path, csv_text,
     (root/'transcripts.csv').write_text(csv_text)
     ns.update(USE_BYOD=True, BYOD_PATH=str(root))
     with pytest.raises(ValueError, match=message):
-        exec(CELLS['63fd18ce'], ns)
+        run_byod(ns)
     assert state['loads'] == 0
 
 
@@ -226,7 +217,7 @@ def test_byod_run_previews_extracted_text(tmp_path, capsys):
     root = byod_pages(tmp_path)
     (root/'transcripts.csv').write_text('file,text\npage.png,hello\n')
     ns.update(USE_BYOD=True, BYOD_PATH=str(root))
-    exec(CELLS['63fd18ce'], ns)
+    run_byod(ns)
     out = capsys.readouterr().out
     assert 'page.png · GOT-OCR 2.0 plain' in out and 'page.png · SmolDocling text' in out
     assert 'CER=0.0' in out
@@ -236,7 +227,9 @@ def test_byod_run_previews_extracted_text(tmp_path, capsys):
 
 def test_exports_record_reference_policy_and_new_count_columns(tmp_path):
     ns, _ = model_ns(tmp_path)
-    source = CELLS['8cb50171']
+    text = STAGE_FILE.read_text(encoding='utf-8')
+    source = next(ast.get_source_segment(text, n) for n in ast.parse(text).body
+                  if isinstance(n, ast.FunctionDef) and n.name == 'stage_export')
     assert '"scored","expected_count"' in source and '"n_table_rows","n_otsl_tokens"' in source
     assert 'renderer v2 (draw-order references)' in source and '"reference_policy":REFERENCE_POLICY' in source
     assert ns['REFERENCE_POLICY'].startswith('Reference = every visible string in drawing order')
