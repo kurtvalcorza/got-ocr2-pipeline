@@ -1,6 +1,6 @@
 """Static release-asset validation for the GOT-OCR 2.0 optical character recognition DIMER pipeline.
 
-Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.0 §4), the tutorial
+Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.2 §4), the tutorial
 registry, model card, README, STATUS.md and weight documentation for source conformance and
 cross-document identity consistency, and runs the generator parity checks (PAR1–PAR3).
 
@@ -49,16 +49,31 @@ CODE_MARKERS = (
     "corpus_groups = fetch_corpus(cache_dir='weights/belfort')",
     "corpus = read_corpus(corpus_groups)",
     "splits = build_sample_dataset(corpus, seed=SPLIT_SEED)",
-    "records = load_byod_dataset(byod_zip)",
-    "splits = split_dataset(records, seed=SPLIT_SEED)",
-    "dataset_manifests = {name: validate_dataset(part) for name, part in splits.items()}",
+    "records = load_byod_dataset(byod_source)",
+    "splits = split_dataset(unique_records, seed=SPLIT_SEED)",
+    "dataset_manifests = {name: validate_dataset(part, min_records=MIN_RECORDS if name == 'train' else 1) for name, part in splits.items()}",
+    # GOT-m1: BYOD path field, upload guard, dropped duplicates reported, the real minimum printed
+    "BYOD_PATH = ''",
+    "if len(uploaded) != 1:",
+    "unique_records, dropped_duplicates = drop_duplicate_images(records)",
+    "'needed': f'at least {byod_record_limits()[0]} distinct images'",
+    # GOT-M3: the split unit and the transcript overlap are reported; Section 8 breaks the rates down
+    "'split_unit': 'line image (no page or writer field)'",
+    "overlap = {'validation': transcript_overlap(train_records, val_records), 'test': transcript_overlap(train_records, test_records)}",
+    "rates = ocr_metrics([run['hypotheses'][i] for i in unseen], unseen_records)",
+    "'transcript_breakdown': transcript_breakdown,",
+    # GOT-M5 / GOT-m4: Sections 5-7 start from the pretrained model; Section 6 refuses an adapted one; page mode is a form field
+    "def reset_to_pretrained():",
+    "    pipe = GotOcr2Pipeline.from_pretrained(weights_dir=WEIGHTS_DIR)",
+    "if frozen_test['adapted']:",
+    "PAGE_MODE = 'plain'",
     "disjoint = check_split_disjoint(splits)",
     "write_dataset_csv(train_records, 'outputs/got_ocr2_train.csv')",
     "validate_dataset(probe)",
     "print({'ceilings': {'MIN_IMAGE_SIDE': MIN_IMAGE_SIDE, 'MAX_IMAGE_SIDE': MAX_IMAGE_SIDE, 'MAX_IMAGE_PIXELS': MAX_IMAGE_PIXELS, 'MAX_NEW_TOKENS': MAX_NEW_TOKENS, 'DEFAULT_MAX_NEW_TOKENS': DEFAULT_MAX_NEW_TOKENS, 'DEFAULT_LINE_MAX_NEW_TOKENS': DEFAULT_LINE_MAX_NEW_TOKENS, 'MODES': list(MODES), 'DECODING': DECODING, 'STOP_STRING': STOP_STRING, 'MIN_RECORDS': MIN_RECORDS, 'MAX_RECORDS': MAX_RECORDS, 'MAX_TEXT_CHARS': MAX_TEXT_CHARS",
-    "input_manifest = validate_inputs(page, mode='plain', max_new_tokens=DEFAULT_MAX_NEW_TOKENS, names=[page_name])",
+    "input_manifest = validate_inputs(page, mode=PAGE_MODE, max_new_tokens=DEFAULT_MAX_NEW_TOKENS, names=[page_name])",
     "validate_inputs(page, mode='multi-page')",
-    "result = pipeline.recognize(page, mode='plain', max_new_tokens=DEFAULT_MAX_NEW_TOKENS)",
+    "result = pipeline.recognize(page, mode=PAGE_MODE, max_new_tokens=DEFAULT_MAX_NEW_TOKENS)",
     "report = evaluation_report(result, page_reference, sample_kind=",
     "baseline_empty = empty_baseline(test_records)",
     "baseline_constant = constant_baseline(train_records, test_records)",
@@ -66,16 +81,23 @@ CODE_MARKERS = (
     "adapt_result = pipe.adapt(train_records, val_records, epochs=EPOCHS, lr=LEARNING_RATE, batch_size=BATCH_SIZE, max_new_tokens=LINE_MAX_NEW_TOKENS, progress=report)",
     "adapted_test = pipe.evaluate(test_records, max_new_tokens=LINE_MAX_NEW_TOKENS, batch_size=EVAL_BATCH_SIZE)",
     "adapted_val = pipe.evaluate(val_records, max_new_tokens=LINE_MAX_NEW_TOKENS, batch_size=EVAL_BATCH_SIZE)",
-    "assert adapted_test['cer'] < frozen_test['cer']",
-    "assert adapted_test['cer'] < baseline_empty['cer']",
+    # GOT-m2: the outcome is recorded, not asserted; GOT-M4: CER and WER are answered separately per baseline
+    "beats = {metric: {name: adapted_test[metric] < ref[metric] for name, ref in references.items()} for metric in ('cer', 'wer')}",
+    "adapted_beats_frozen = beats['cer']['frozen']",
+    "adapted_cer_beats_both_baselines = beats['cer']['empty'] and beats['cer']['constant']",
+    "adapted_wer_beats_both_baselines = beats['wer']['empty'] and beats['wer']['constant']",
+    "reading = answer('cer') + ' ' + answer('wer')",
+    "'adapted_wer_beats_both_baselines': adapted_wer_beats_both_baselines,",
+    "print('Reading: ' + reading)",
+    "run_history = globals().get('run_history', [])",
     "adapted_page_result, adapted_page = recognise_page(pipe, 'adapted')",
     "pipe.save_artifact(artifact_dir, metadata={'tutorial': 'got_ocr2', 'data_source': data_source})",
     "reloaded = GotOcr2Pipeline.from_artifact(artifact_dir, weights_dir=WEIGHTS_DIR, device=pipe.device)",
-    "assert parity['identical_lines'] == parity['of']",
+    "raise RuntimeError(f'Reload parity failed: {parity}.",
     "'model_revision': MODEL_REVISION",
     "'model_license': MODEL_LICENSE",
     "'weight_file': WEIGHT_FILE, 'weight_format': 'safetensors, digest-verified', 'weight_sha256': pipe.weight_sha256",
-    "'corpus': {'name': CORPUS_NAME, 'repo': CORPUS_REPO, 'revision': CORPUS_REVISION, 'file': CORPUS_FILE, 'license': CORPUS_LICENSE, 'language': CORPUS_LANGUAGE, 'row_groups': sorted(ROW_GROUP_PINS), 'shard_bytes': CORPUS_BYTES",
+    "'corpus': None if USE_BYOD else {'name': CORPUS_NAME, 'repo': CORPUS_REPO, 'revision': CORPUS_REVISION, 'file': CORPUS_FILE, 'license': CORPUS_LICENSE, 'language': CORPUS_LANGUAGE, 'row_groups': sorted(ROW_GROUP_PINS), 'shard_bytes': CORPUS_BYTES",
     "transformers.__version__",
     "'device': pipe.device",
 )
@@ -107,6 +129,48 @@ MARKDOWN_MARKERS = (
     "## 9. Look at the lines, export the adapter and reload it",
     "**Rates above 1.0:**",
     "**Leakage:**",
+    # GOT-M3: the split is described as what it is
+    "**What the split does and does not protect against.**",
+    "**same-collection estimate**",
+    "**The split is by line image, not by page:**",
+    # GOT-m3: the run-to-run spread is stated; GOT-M4: the WER answer is stated
+    "**Run-to-run spread.**",
+    "**not the word error rate**",
+)
+# Learner-facing text the review fixes removed; it must not come back (GOT-M1 restart/install text, GOT-M3 the
+# leakage claim, GOT-m1 the wrong BYOD minimum, GOT-m3 the wrong test-split size, GOT-m2 the asserted gain, GOT-M5
+# the rerun that reused the adapted model, GOT-M4 the unqualified "reads the hand" conclusion).
+STALE_MARKDOWN = (
+    "its restart",
+    "Restart the runtime, then rerun",
+    "installs the pinned dependencies",
+    "without leakage",
+    "line-disjoint",
+    "at least eight images",
+    "a dataset needs 8..5,000 records",
+    "Eighty lines",
+    "The cell asserts",
+    "re-run from that cell",
+    "teaches it to read the hand",
+)
+# Code text the review fixes removed (GOT-M4: a flag named for both baselines but computed on one measure).
+STALE_CODE = ("'adapted_beats_both_baselines'",)
+# The guided layer (NOTEBOOK_SPEC 2.2 §3.5, GDL1-GDL15; review GOT-M2): each marker with its minimum count.
+GUIDED_MARKERS = (
+    ("**Who this is for.**", 1),
+    ("**Input → Model → Output.**", 1),
+    ("**How to use this notebook.**", 1),
+    ("**Roadmap:**", 1),
+    ("**Predict before running:**", 6),
+    ("**What to notice:**", 6),
+    ("<summary>Check your reasoning</summary>", 7),
+    ("## 10. Your turn — change one thing", 1),
+    ("**Predict → Change one thing → Run → Observe → Explain**", 1),
+    ("## Troubleshooting", 1),
+    ("## Glossary", 1),
+    ("## Conclusion (your notes)", 1),
+    ("> **Infrastructure.**", 3),
+    ("**Optional experiments", 1),
 )
 # Direct-library use that must stay inside the carried module cells (G2: the notebook calls the
 # pipeline API, it does not reimplement it). Checked on every code cell except the embedded ones
@@ -137,10 +201,10 @@ INSTALL_CELL_MARKER = "subprocess.run([sys.executable, '-m', 'pip', 'install', '
 # ---------------------------------------------------------------------------
 # Shared checks. Everything below is source/structure validation only. Passing
 # these checks is NOT clean-runtime execution evidence under DIMER Notebook
-# Specification 2.0; see docs/release-verification.md for the release gate.
+# Specification 2.2; see docs/release-verification.md for the release gate.
 # ---------------------------------------------------------------------------
 
-NOTEBOOK_SPEC = "2.0"
+NOTEBOOK_SPEC = "2.2"
 ALLOWED_PROFILES = {"E2E", "ARTIFACT-INFERENCE", "TASK-INFERENCE", "MULTI-CAPABILITY", "SMOKE"}
 STATUS_TOKENS = ("Candidate", "Release-grade")
 PLACEHOLDER = re.compile(r"\b(TODO|TBD|FIXME)\b|Insert text here|Tooltip:", re.I)
@@ -576,8 +640,13 @@ def _validate_embedded_modules(path: Path, notebook: dict, build) -> list[int]:
             cell["metadata"]["dimer"].get("module_sha256") == context["per_module_sha256"][rel],
             f"{path.name}: cell {index} module_sha256 tag does not match {rel}",
         )
+        # GOT-M2: the carried cell is the module plus the generator's one Infrastructure title line, collapsed.
         _check(
-            _cell_source(cell).rstrip("\n") + "\n" == context["embedded"][module],
+            _cell_source(cell).startswith(build.CARRIED_TITLE_PREFIX) and cell.get("metadata", {}).get("cellView") == "form",
+            f"{path.name}: carried module cell {index} must start with the generator's Infrastructure title and be collapsed (cellView: form)",
+        )
+        _check(
+            build.strip_carried_title(_cell_source(cell)).rstrip("\n") + "\n" == context["embedded"][module],
             f"{path.name}: embedded module cell {index} differs from {rel} (PAR1); regenerate the notebook",
         )
     return [index for index, _ in tagged]
@@ -634,7 +703,7 @@ def _validate_bootstrap_guard(path: Path, code_cells: list[tuple[int, str, ast.M
 
 
 def _validate_notebook_content(
-    path: Path, code_cells: list[tuple[int, str, ast.Module]], markdown: str, embedded: list[int]
+    path: Path, code_cells: list[tuple[int, str, ast.Module]], markdown: str, embedded: list[int], notebook: dict
 ) -> None:
     model_id, _revision = _package_identity()
     stripped = {index: _strip_comments(source) for index, source, _ in code_cells}
@@ -644,11 +713,35 @@ def _validate_notebook_content(
     _check(not missing, f"{path.name}: missing required source markers: {missing}")
     present = [label for label, pattern in FORBIDDEN_PATTERNS if pattern.search(code)]
     _check(not present, f"{path.name}: forbidden/insecure source: {present}")
-    outside_stage_cells = "\n".join(
-        text for index, text in stripped.items() if index not in embedded and INSTALL_CELL_MARKER not in text
+    # GOT-M1: the kernel install cell downloads the pinned uv wheel and verifies its size and SHA-256; with the
+    # generator's runtime-record cell (pip install guard, skipped in the isolated worker) it is the only cell outside
+    # the carried modules allowed to use urllib.request / the pinned-install markers (and to name the pyarrow pin).
+    kernel = {index for index, source, _tree in code_cells if "# dimer: kernel cell" in source}
+    learner = "\n".join(
+        text for index, text in stripped.items() if index not in embedded and index not in kernel and INSTALL_CELL_MARKER not in text
     )
-    leaked = [marker for marker in FORBIDDEN_OUTSIDE_MODULE if marker in outside_stage_cells]
+    kernel_raw = [source for index, source, _tree in code_cells if index in kernel]
+    leaked = [marker for marker in FORBIDDEN_OUTSIDE_MODULE if marker in learner]
+    leaked += [m for m in FORBIDDEN_OUTSIDE_MODULE if m not in ("urllib.request", "pyarrow") and any(m in _strip_comments(k) for k in kernel_raw)]
     _check(not leaked, f"{path.name}: direct library use outside the carried module cell (G2): {leaked}")
+    _check(len(kernel) == 2, f"{path.name}: exactly two kernel cells (isolated install and router) are expected (GOT-M1)")
+    install = next((k for k in kernel_raw if "LOCK_TEXT = r" in k), "")
+    for needed in ('"--managed-python"', '"--require-hashes"', '"--only-binary"', '":all:"', "UV_SHA256", "LOCK_SHA256", 'platform.machine() != "x86_64"'):
+        _check(needed in install, f"{path.name}: the isolated install cell must use {needed} (GOT-M1)")
+    _check("_ip.input_transformers_cleanup.append(_route_to_isolated_runtime)" in "\n".join(kernel_raw), f"{path.name}: later cells must be routed to the isolated environment (GOT-M1)")
+    _check("module.__spec__ = importlib.machinery.ModuleSpec(name, None, is_package=package)" in "\n".join(kernel_raw), f"{path.name}: the worker's google.colab stubs must carry a module spec")
+    stale = [marker for marker in STALE_MARKDOWN if marker in markdown]
+    _check(not stale, f"{path.name}: stale learner-facing text: {stale}")
+    stale_code = [marker for marker in STALE_CODE if marker in learner]
+    _check(not stale_code, f"{path.name}: stale code (GOT-M4): {stale_code}")
+    _check("{{" not in markdown and "}}" not in markdown, f"{path.name}: markdown must not show doubled braces")
+    _check("\nassert " not in "\n" + learner, f"{path.name}: learner cells must not use a bare assert (GOT-m2)")
+    short = [(marker, markdown.count(marker), least) for marker, least in GUIDED_MARKERS if markdown.count(marker) < max(least, 1)]
+    _check(not short, f"{path.name}: guided layer incomplete (marker, found, needed): {short}")
+    # GDL11 (GOT-M2): every setup cell (install, router, runtime record, carried modules, model) is collapsed and titled.
+    setup = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"][: 3 + len(embedded) + 1]
+    _check(all(cell.get("metadata", {}).get("cellView") == "form" for cell in setup), f"{path.name}: Sections 1-3 code cells must be collapsed (cellView: form) (GOT-M2)")
+    _check(all("".join(cell["source"]).startswith("# @title Infrastructure: ") for cell in setup), f"{path.name}: Sections 1-3 code cells must be titled '# @title Infrastructure: ...' (GOT-M2)")
     _check(
         f"pipe = {MODEL_LOAD_EXPR}" in outside,
         f"{path.name}: must load through {MODEL_LOAD_EXPR} (INF1)",
@@ -682,7 +775,7 @@ def validate_notebooks() -> None:
     _model_id, revision = _package_identity()
     _validate_identity(path, code_cells, embedded, revision)
     _validate_parity(path, notebook, code_cells, build)
-    _validate_notebook_content(path, code_cells, markdown, embedded)
+    _validate_notebook_content(path, code_cells, markdown, embedded, notebook)
     registry = _read(tutorials / "README.md")
     _check(f"`{path.name}`" in registry, f"{path.name} missing from tutorials/README.md")
     _check(
