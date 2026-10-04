@@ -1,31 +1,34 @@
-"""Supplemental OCR notebook checks; no real models or hosted qualification."""
-import ast
+"""Supplemental OCR notebook checks; no real models or hosted qualification.
+
+Since 2026-10-03 the model, BYOD and export code runs in the uv isolated environment as stages of the
+carried file tools/ocr_workshop.py; these checks call those stages in-process with model doubles.
+"""
 import csv
-import gc
 import hashlib
 import io
-import json
-import re
 import zipfile
 from pathlib import Path
-from types import SimpleNamespace
 
-import numpy as np
 import pytest
-from packaging.version import InvalidVersion, Version
 from PIL import Image
 
 NOTEBOOK = Path(__file__).resolve().parents[1] / 'tutorials/DIMER_OCR_Document_Extraction_Workshop.ipynb'
 
 
-def cell(index):
-    return ''.join(json.loads(NOTEBOOK.read_text(encoding='utf-8'))['cells'][index]['source'])
+STAGE_FILE = Path(__file__).resolve().parents[1] / 'tools/ocr_workshop.py'
 
 
-def helpers(index, names, ns):
-    tree = ast.parse(cell(index))
-    tree.body = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
-    exec(compile(tree, 'notebook-helper', 'exec'), ns)
+def stage_ns(tmp_path):
+    """Globals of the carried stage file as one stage process sees them, with directories under tmp_path."""
+    ns = {'__name__': 'ocr_workshop_under_test'}
+    exec(compile(STAGE_FILE.read_text(encoding='utf-8'), str(STAGE_FILE), 'exec'), ns)
+    ns.update(OUTPUT_DIR=str(tmp_path/'outputs'), WORK_DIR=str(tmp_path/'work'))
+    return ns
+
+
+def run_byod(ns):
+    """The notebook's BYOD cell runs this stage; it returns the report it also saves as state."""
+    ns['byod_report'] = ns['stage_byod']()
 
 
 def setup(tmp_path):
@@ -51,21 +54,16 @@ def setup(tmp_path):
             for _ in images
         ]
 
-    ns = dict(Path=Path, Image=Image, np=np, csv=csv, gc=gc, io=io, json=json, re=re,
-              hashlib=hashlib, zipfile=zipfile, USE_BYOD=False,
-              MIN_IMAGE_SIDE=16, MAX_IMAGE_SIDE=16384, MAX_IMAGE_PIXELS=4096**2,
-              OUT_ROOT=tmp_path/'outputs', BATCH_SIZE=8, GOT_PAGE_MAX_NEW_TOKENS=1024,
-              SMOLDOC_PAGE_MAX_NEW_TOKENS=2048, SMOL_DEFAULT='convert',
-              GOT_MANIFEST={'revision': 'got-fixed'}, SMOL_MANIFEST={'revision': 'smol-fixed'},
-              RUNTIME={'test_double': True}, load_got=load, load_smoldoc=load,
-              got_generate=generate, smol_generate=generate,
-              torch=SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False)), Markdown=None)
-    helpers(7, {'preview', 'show_block'}, ns)
-    helpers(9, {'sha256_file'}, ns)
-    helpers(11, {'normalise_text'}, ns)
-    helpers(13, {'edit_distance', 'words', 'one_metrics'}, ns)
-    helpers(47, {'write_csv'}, ns)
-    exec(cell(51), ns)
+    ns = stage_ns(tmp_path)
+    assert (ns['USE_BYOD'], ns['MIN_IMAGE_SIDE'], ns['MAX_IMAGE_SIDE'], ns['MAX_IMAGE_PIXELS']) == (
+        False, 16, 16384, 4096**2)
+    ns.update(BATCH_SIZE=8, GOT_PAGE_MAX_NEW_TOKENS=1024, SMOLDOC_PAGE_MAX_NEW_TOKENS=2048,
+              SMOL_DEFAULT='convert', GOT_MANIFEST={'revision': 'got-fixed'},
+              SMOL_MANIFEST={'revision': 'smol-fixed'}, RUNTIME={'test_double': True},
+              load_got=load, load_smoldoc=load, got_generate=generate, smol_generate=generate,
+              empty_device_cache=lambda: None)
+    run_byod(ns)
+    assert ns['byod_report'] is None
     return ns, state
 
 
@@ -84,7 +82,7 @@ def test_byod_pipeline_exports_and_blank_reference(tmp_path, reference):
     if reference is not None:
         (root/'transcripts.csv').write_text('file,text,id\npage.png,'+reference+',custom\n')
     ns.update(USE_BYOD=True, BYOD_PATH=str(root))
-    exec(cell(51), ns)
+    run_byod(ns)
     report = ns['byod_report']
     output = Path(report['output_directory'])
     assert report['evaluation_verdict'] == ('not-measurable' if reference is None else 'measured')
@@ -101,7 +99,7 @@ def test_byod_pipeline_exports_and_blank_reference(tmp_path, reference):
     elif reference == 'hello':
         assert float(rows[0]['cer']) == 0
     assert state['live'] == 0 and state['loads'] == 2
-    exec(cell(51), ns)
+    run_byod(ns)
     assert Path(ns['byod_report']['output_directory']) != output
     assert (output/'report.json').is_file()
 
@@ -118,7 +116,7 @@ def test_transcript_validation_precedes_model_load(tmp_path, rows, message):
     (root/'transcripts.csv').write_text('file,text,id\n'+rows)
     ns.update(USE_BYOD=True, BYOD_PATH=str(root))
     with pytest.raises(ValueError, match=message):
-        exec(cell(51), ns)
+        run_byod(ns)
     assert state['loads'] == 0
     assert not (tmp_path/'escape.got_plain.txt').exists()
 
@@ -158,7 +156,7 @@ def test_generation_failure_releases_model_and_can_retry(tmp_path):
     ns.update(USE_BYOD=True, BYOD_PATH=str(root))
     state['fail'] = True
     try:
-        exec(cell(51), ns)
+        run_byod(ns)
     except RuntimeError as error:
         assert 'injected' in str(error)
         # Check while the traceback is still reachable, as in an interactive kernel.
@@ -167,14 +165,6 @@ def test_generation_failure_releases_model_and_can_retry(tmp_path):
         pytest.fail('generation failure was not propagated')
     assert state['live'] == 0
     state['fail'] = False
-    exec(cell(51), ns)
+    run_byod(ns)
     assert state['live'] == 0 and ns['byod_report']['images'] == 1
 
-
-@pytest.mark.parametrize(
-    ('version', 'match'), [('2.14.0+cu128', True), ('2.14.0rc1', False), ('2.14.1', False)]
-)
-def test_runtime_version_matching(version, match):
-    ns = dict(Version=Version, InvalidVersion=InvalidVersion)
-    helpers(7, {'matches_public_version'}, ns)
-    assert ns['matches_public_version'](version, '2.14.0') is match

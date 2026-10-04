@@ -35,3 +35,8 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# The OCR workshop's stage file carries the notebook's former cells in their compact style, unchanged, so
+# the moved code stays byte-identical to what the notebook ran before 2026-10-03.
+"tools/ocr_workshop.py" = ["E501", "E701", "E702", "B905"]
