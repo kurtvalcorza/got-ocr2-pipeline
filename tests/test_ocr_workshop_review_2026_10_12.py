@@ -151,28 +151,45 @@ def _md(cid):
 
 
 def test_metric_normalisation_and_line_budgets_are_stated():
+    """Wording check: learner-facing text only, not behaviour."""
     section7 = _md("c96f1b20")
     assert "case kept" in section7 and "lower-casing" in section7 and "128" in section7 and "160" in section7
     assert "case-insensitive" in _md("guided-05")
 
 
-def test_reading_order_is_explained_where_token_f1_is_shown():
+def test_reading_order_text_does_not_infer_order_from_the_wer_gap():
+    """Wording check (CX1, CX4): the WER vs token-F1 gap prompts inspection; it is not an order statistic."""
     section21 = _md("bcd85ff8")
-    assert "Reading order" in section21 and "token-F1" in section21 and "INSPECT_PAGE" in section21
+    assert "Reading order" in section21 and "not a reading-order statistic" in section21
+    assert "`a b a b`" in section21 and "repetition" in section21 and "omissions" in section21
+    assert "means many of the right words came out in a different order" not in section21
+    assert "not the WER alignment" in section21 and "names exactly" not in section21
+
+
+def test_wer_gap_example_in_the_text_holds():
+    """The counter-example quoted in Section 21 is computed with the stage file's own metrics."""
+    import ocr_workshop as stages
+
+    m = stages.one_metrics("a b", "a b a b")
+    _, _, f1 = stages.token_overlap("a b", "a b a b")
+    assert m["wer"] == 1.0 and abs(f1 - 2 / 3) < 1e-12
 
 
 def test_expected_count_rule_names_formula_and_key_value_cases():
+    """Wording check: learner-facing text only, not behaviour."""
     section8 = _md("c7241d47")
     assert "formula" in section8 and "key_value_region" in section8 and "in addition" in section8
 
 
 def test_belfort_provenance_and_references():
+    """Wording check: learner-facing text only, not behaviour."""
     text = "\n".join(t for _, t in MARKDOWN)
     assert "https://huggingface.co/datasets/Teklia/Belfort-line" in text and "MIT licence" in text
     assert "live carrier" not in text.lower() and "# References" in _md("guided-05")
 
 
 def test_use_notice_precedes_the_first_code_cell():
+    """Wording check: learner-facing text only, not behaviour."""
     cells = _notebook()["cells"]
     first_code = next(i for i, c in enumerate(cells) if c["cell_type"] == "code")
     before = "\n".join("".join(c["source"]) for c in cells[:first_code])
@@ -181,6 +198,7 @@ def test_use_notice_precedes_the_first_code_cell():
 
 # ---- OCR2-m4, m5: guidance for the stage-process design and an activity that addresses unchanged rows ------
 def test_no_pre_uv_guidance_remains():
+    """Wording check: learner-facing text only, not behaviour."""
     text = "\n".join(t for _, t in MARKDOWN).lower()
     for phrase in ("while their respective models are loaded", "do not rerun released-model cells",
                    "without reloading a released model", "already imported in the hosted kernel",
@@ -189,6 +207,7 @@ def test_no_pre_uv_guidance_remains():
 
 
 def test_budget_activity_contrasts_smoldocling_and_explains_identical_rows():
+    """Wording check: learner-facing text only, not behaviour."""
     activity = _md("guided-01")
     assert "SmolDocling's report-page budget from 256 to 512" in activity and "identical" in activity
 
@@ -214,3 +233,75 @@ def test_metadata_declares_profile_mode_kind_and_one_spec_version():
     assert '"notebook_spec":"2.5"' in STAGE_FILE.read_text(encoding="utf-8")
     latest = dimer["review_revisions"][-1]
     assert latest["date"] == "2026-10-12" and latest["hosted_execution"] == "pending"
+
+
+# ---- Codex peer review follow-up (CX2..CX7) -------------------------------------------------------------
+def test_configured_pipeline_labels_and_no_unmeasured_qualifier():
+    """Wording check (CX2, CX6): results are labelled end to end; the residue effect is not called slight."""
+    section7 = _md("c96f1b20")
+    assert "Configured-pipeline results" in section7 and "do not show whether these line budgets" in section7
+    assert "slightly" not in _md("8299d664") and "configured-pipeline" in _md("aaaebfe3")
+    assert "the 60 are not used" in _md("4426885d") and "pretraining data, is unknown" in _md("4426885d")
+
+
+def _full_run(tmp_path):
+    from test_workshop_optional_paths import stage_ns as fresh_ns
+
+    ns = fresh_ns(tmp_path)
+
+    class Model:
+        def parameters(self):
+            return [type("P", (), {"numel": lambda self: 4})()]
+
+    def generate(*args):
+        return [dict(text="PUBLIC NOTICE", doctags="<doctag><text>PUBLIC NOTICE</text></doctag>",
+                     new_tokens=3, truncated=False, inference_seconds=0.1) for _ in args[4]]
+
+    ns.update(RUN_BELFORT=False, load_got=lambda: (Model(), None, 0, 1, 0.5),
+              load_smoldoc=lambda: (Model(), None, 1, 0, 0.25), got_generate=generate, smol_generate=generate,
+              RUNTIME={"device": "cpu"})
+    ns["save_state"]("snapshots.json", {"got": {"dir": "g", "verify_seconds": 1.0},
+                                        "smoldocling": {"dir": "s", "verify_seconds": 2.0}})
+    ns["save_state"]("belfort.json", {"digest": "d", "image_digests": {}, "splits": {"test": []}})
+    ns["save_state"]("baselines.json", {"empty_metrics": None, "constant_metrics": None, "constant_text": ""})
+    for stage in ("pages", "got-load", "got-belfort", "got-pages", "got-probes", "smol-load", "smol-belfort",
+                  "smol-pages", "smol-specialized", "smol-probes", "compare", "resources"):
+        ns["STAGES"][stage]()
+    return ns
+
+
+def test_export_refuses_a_comparison_older_than_its_inputs(tmp_path):
+    ns = _full_run(tmp_path)
+    ns["STAGES"]["export"]()  # a straight run exports
+    ns["STAGES"]["got-pages"]()  # a canonical step re-run with a different result
+    rows = ns["load_state"]("got_pages.json")
+    rows["rows"][0]["cer"] = 0.5
+    ns["save_state"]("got_pages.json", rows)
+    stale = r"comparison \(Section 20\) was computed before got_pages.json changed"
+    with pytest.raises(RuntimeError, match=stale):
+        ns["STAGES"]["export"]()
+    ns["STAGES"]["compare"]()
+    stale = r"resource summary \(Section 22\) was computed before got_pages.json"
+    with pytest.raises(RuntimeError, match=stale):
+        ns["STAGES"]["export"]()
+    ns["STAGES"]["resources"]()
+    ns["STAGES"]["export"]()  # both summaries refreshed: the export runs again
+
+
+def test_probe_rerun_needs_only_the_export(tmp_path):
+    ns = _full_run(tmp_path)
+    ns["STAGES"]["got-probes"]()
+    ns["STAGES"]["export"]()
+
+
+def test_display_labels_for_structure_resources_and_word_diff(tmp_path, capsys):
+    ns = _full_run(tmp_path)
+    out = capsys.readouterr().out
+    assert "authored count discrepancy" in out and "raw tag/token counts" in out and "abs err" not in out
+    assert "amortised_s_per_line (batched Belfort run)" in out
+    assert "peak_allocated_gpu_bytes (Belfort line inference only)" in out
+    ns["stage_inspect"]("notice")
+    assert "case-sensitive illustrative text diff; not the WER alignment" in capsys.readouterr().out
+    rows = ns["load_state"]("resources.json")
+    kept = {"mean_line_latency_s", "mean_page_latency_s", "peak_gpu_memory_bytes"}  # export keys unchanged
+    assert kept <= set(rows[0])

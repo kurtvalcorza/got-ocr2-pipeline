@@ -157,7 +157,7 @@ def test_page_text_structure_and_specialized_outputs_are_shown(tmp_path, capsys)
     assert 'Reference · invoice' in out and 'Invoice Number: INV-2026-0926' in out
     assert "reference='INVOICE Invoice Number: INV-2026-0926" in out  # a named word-level difference
     assert 'Convert table to OTSL.' in out and out.count('SMOLMARK') >= 8
-    assert 'Unscored observed types' in out
+    assert 'Observed types without an authored count' in out  # display label (review 2026-10-12, CX5)
     assert all(r['n_table_cells'] == 2 for r in ns['load_state']('smol_pages.json')['summaries'].values())
 
 

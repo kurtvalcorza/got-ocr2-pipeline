@@ -951,14 +951,15 @@ def stage_smol_pages():
             smol_page_results[pid]=item; smol_page_rows.append(page_row("SmolDocling",page,item,item["text"]))
             summary=doctags_summary(item["doctags"]); smol_summaries[pid]=summary
             smol_structure_rows.extend(structure_rows(pid,page["expected_counts"],summary))
-            print(pid,{"CER":round(smol_page_rows[-1]["cer"],3),"WER":round(smol_page_rows[-1]["wer"],3),
+            print(pid,"text scores and raw tag/token counts:",{"CER":round(smol_page_rows[-1]["cer"],3),"WER":round(smol_page_rows[-1]["wer"],3),
                        "elements":summary["n_elements"],"table_cells":summary["n_table_cells"],
                        "table_rows":summary["n_table_rows"],"OTSL_tokens":summary["n_otsl_tokens"]})
-        print(f"\n{'page':<16}{'scored element':<24}{'expected':>9}{'observed':>9}{'abs err':>8}")
+        print(f"\n{'page':<16}{'element (authored count)':<26}{'authored':>9}{'observed':>9}"
+              f"{'authored count discrepancy':>28}")
         for r in smol_structure_rows:
             if r["scored"]:
-                print(f"{r['page_id']:<16}{r['element_type']:<24}{r['expected_count']:>9}{r['observed_count']:>9}{r['absolute_count_error']:>8}")
-        print("Unscored observed types:",{f"{r['page_id']}:{r['element_type']}":r["observed_count"]
+                print(f"{r['page_id']:<16}{r['element_type']:<26}{r['expected_count']:>9}{r['observed_count']:>9}{r['absolute_count_error']:>28}")
+        print("Observed types without an authored count:",{f"{r['page_id']}:{r['element_type']}":r["observed_count"]
                                          for r in smol_structure_rows if not r["scored"]})
         show_block("SmolDocling native DocTags · report",smol_page_results["report"]["doctags"],1500,
                    PAGE_DIR/"report"/"smoldocling.doctags")
@@ -1034,6 +1035,26 @@ def stage_smol_probes():
 # ---------------------------------------------------------------------------------------------
 # Section 20: cross-model comparison.
 # ---------------------------------------------------------------------------------------------
+# Step results each summary combines. The export refuses to mix a summary with step results that changed
+# after it was computed (a re-run step), so every exported file describes the same run.
+COMPARE_INPUTS=("baselines.json","got_belfort.json","smol_belfort.json","got_pages.json","smol_pages.json")
+RESOURCE_INPUTS=("snapshots.json","belfort.json","got_load.json","smol_load.json","got_belfort.json",
+                 "smol_belfort.json","got_pages.json","smol_pages.json")
+
+
+def state_digests(names):
+    return {n:(hashlib.sha256(state_path(n).read_bytes()).hexdigest() if state_path(n).is_file() else None)
+            for n in names}
+
+
+def check_fresh(summary,inputs,recorded,rerun):
+    changed=sorted(n for n,d in state_digests(inputs).items() if recorded.get(n)!=d)
+    if changed:
+        raise RuntimeError(f"{summary} was computed before {', '.join(changed)} changed (a step was re-run). "
+                           f"Run {rerun} again, then this export cell, so every exported file describes "
+                           "the same run.")
+
+
 def summary_row(system,m,truncated=0,empty=0):
     return {"system":system,"cer":m["cer"],"cer_macro":m["cer_macro"],"wer":m["wer"],"wer_macro":m["wer_macro"],
             "exact_match":m["exact_match"],"median_cer":m["median_cer"],"p90_cer":m["p90_cer"],
@@ -1073,7 +1094,7 @@ def stage_compare():
         for row in belfort_metric_rows: print(row["system"],round(row["cer"],3),round(row["wer"],3))
     page_text_rows=load_state("got_pages.json")["rows"]+load_state("smol_pages.json")["rows"]
     save_state("compare.json",{"belfort_result_rows":belfort_result_rows,"belfort_metric_rows":belfort_metric_rows,
-                               "page_text_rows":page_text_rows})
+                               "page_text_rows":page_text_rows,"inputs":state_digests(COMPARE_INPUTS)})
 
 
 # Section 21: try it yourself.
@@ -1096,7 +1117,8 @@ def stage_inspect(INSPECT_PAGE):
             if INSPECT_PAGE not in store: continue
             text=store[INSPECT_PAGE]["text"]
             show_block(f"{label} · {INSPECT_PAGE}",text,1500,PAGE_DIR/INSPECT_PAGE/filename)
-            print(f"First word-level differences, {label} vs reference:")
+            print(f"First word-level differences, {label} vs reference "
+                  "(case-sensitive illustrative text diff; not the WER alignment):")
             for d in word_diff(page["reference_text"],text,8) or [{"op":"none","reference":"","model":""}]:
                 print(f"  {d['op']:<8} reference={d['reference']!r}  model={d['model']!r}")
         if INSPECT_PAGE in smol_page_results and INSPECT_PAGE!="report":
@@ -1105,6 +1127,12 @@ def stage_inspect(INSPECT_PAGE):
 
 
 # Section 22: resource comparison.
+RESOURCE_LABELS={"belfort_seconds":"belfort_total_s (batched, incl. processor prep)",
+                 "mean_line_latency_s":"amortised_s_per_line (batched Belfort run)",
+                 "mean_page_latency_s":"generation_s_per_page (excludes processor prep)",
+                 "peak_gpu_memory_bytes":"peak_allocated_gpu_bytes (Belfort line inference only)"}
+
+
 def stage_resources():
     snapshots=load_state("snapshots.json"); test_count=len(load_state("belfort.json")["splits"]["test"])
     got_load,smol_load=load_state("got_load.json"),load_state("smol_load.json")
@@ -1128,7 +1156,9 @@ def stage_resources():
       "mean_page_latency_s":float(np.mean([x["inference_seconds"] for x in smol_page_results.values()])) if smol_page_results else None,
       "peak_gpu_memory_bytes":smol["peak_gpu"]}]
     save_state("resources.json",resource_rows)
-    for r in resource_rows:print(r)
+    save_state("resources_inputs.json",state_digests(RESOURCE_INPUTS))
+    # CX7: display labels say what each timing and memory figure covers (export keys are unchanged).
+    for r in resource_rows:print({RESOURCE_LABELS.get(k,k):v for k,v in r.items()})
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1148,6 +1178,10 @@ def compact(m):
 def stage_export():
     OUT_ROOT=Path(OUTPUT_DIR); OUT_ROOT.mkdir(parents=True,exist_ok=True); PAGE_DIR=page_dir()
     compare=load_state("compare.json"); baselines=load_state("baselines.json")
+    check_fresh("The cross-model comparison (Section 20)",COMPARE_INPUTS,compare.get("inputs",{}),
+                "the comparison cell (Section 20) and the resource cell (Section 22)")
+    check_fresh("The resource summary (Section 22)",RESOURCE_INPUTS,load_state("resources_inputs.json"),
+                "the resource cell (Section 22)")
     got_pages,smol_pages=load_state("got_pages.json"),load_state("smol_pages.json")
     got_probes,smol_probes=load_state("got_probes.json"),load_state("smol_probes.json")
     belfort_result_rows,belfort_metric_rows=compare["belfort_result_rows"],compare["belfort_metric_rows"]
