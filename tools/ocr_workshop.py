@@ -849,6 +849,9 @@ def stage_got_probes():
     save_state("got_probes.json",{"budget_rows":got_budget_rows,"shape_rows":got_shape_rows,
                                   "blank_noise":got_blank_noise})
     print({k:{x:v[x] for x in ("characters","new_tokens","truncated")} for k,v in got_blank_noise.items()})
+    for name,item in got_blank_noise.items():
+        show_block(f"GOT-OCR 2.0 · {name} probe: generated text (the image has no text)",
+                   item["text"] or "(no text generated)",400,state_path("got_probes.json"))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1013,6 +1016,11 @@ def stage_smol_probes():
     save_state("smol_probes.json",{"budget_rows":smol_budget_rows,"shape_rows":smol_shape_rows,
                                    "blank_noise":smol_blank_noise})
     print({k:{x:v[x] for x in ("characters","new_tokens","truncated")} for k,v in smol_blank_noise.items()})
+    for name,item in smol_blank_noise.items():
+        show_block(f"SmolDocling · {name} probe: extracted text (the image has no text)",
+                   item["text"] or "(no text generated)",400,state_path("smol_probes.json"))
+        show_block(f"SmolDocling · {name} probe: native DocTags",
+                   item["doctags"] or "(no DocTags generated)",400,state_path("smol_probes.json"))
     got_budget_rows=load_state("got_probes.json")["budget_rows"]
     if got_budget_rows or smol_budget_rows:
         print("\nPaired token-budget comparison · report page")
@@ -1200,7 +1208,7 @@ def stage_export():
     (OUT_ROOT/"metrics.json").write_text(json.dumps(metrics_export,indent=2,ensure_ascii=False),encoding="utf-8")
 
     provenance={
-     "notebook_spec":"2.1","profile":"TASK-INFERENCE","pedagogical_mode":"WORKSHOP","standalone":True,
+     "notebook_spec":"2.5","profile":"TASK-INFERENCE","pedagogical_mode":"WORKSHOP","standalone":True,
      "got":{"model_id":GOT_MANIFEST["modelId"],"revision":GOT_MANIFEST["revision"],"license":"Apache-2.0",
             "manifest":GOT_MANIFEST,"parameter_count":got_parameter_count,
             "preprocessing":"1024x1024 square; aspect ratio not preserved","decoding":"greedy"},
@@ -1224,16 +1232,31 @@ def stage_export():
 # Section 26: BYOD, labelled or unlabelled.
 # ---------------------------------------------------------------------------------------------
 BYOD_EXTENSIONS={".png",".jpg",".jpeg",".webp",".tif",".tiff",".bmp"}
+# Exit code of a refused BYOD input. The stage prints the reason once and the notebook cell stops
+# without raising; any other failure keeps its traceback and still raises in the notebook.
+REFUSED_EXIT=65
+
+
+class InputRefused(ValueError):
+    """A BYOD input breaks a documented input rule (not a defect of this stage file)."""
+
+
+def refuse(error):
+    reason=str(error).rstrip(". ")
+    print(f"Refused: {reason}. Fix that file or BYOD_PATH, then run the BYOD cell again.",flush=True)
+    raise SystemExit(REFUSED_EXIT)
 
 
 def safe_identifier(value):
     value=str(value).strip()
     if not value or value in (".","..") or any(ch in value for ch in ("/", "\\", ":", "\x00")):
-        raise ValueError(f"Unsafe or empty BYOD id: {value!r}")
+        raise InputRefused(f"Unsafe or empty BYOD id: {value!r}")
     return value
 
 
 def load_byod(path):
+    if not str(path).strip():
+        raise InputRefused("BYOD_PATH is empty; set it to a directory or ZIP of page images")
     src=Path(path)
     source_zip_sha256=None
     if src.is_file() and src.suffix.lower()==".zip":
@@ -1244,28 +1267,28 @@ def load_byod(path):
                 name=info.filename.replace("\\","/"); parts=[p for p in name.split("/") if p]
                 if info.is_dir(): continue
                 if name.startswith("/") or ".." in parts or any(":" in part for part in parts):
-                    raise ValueError(f"unsafe ZIP member {name}")
+                    raise InputRefused(f"unsafe ZIP member {name}")
                 mode=(info.external_attr>>16)&0o170000
-                if mode==0o120000: raise ValueError(f"symlink refused {name}")
+                if mode==0o120000: raise InputRefused(f"symlink refused {name}")
                 total+=info.file_size
-                if total>1_000_000_000: raise ValueError("ZIP exceeds 1 GB expanded")
+                if total>1_000_000_000: raise InputRefused("ZIP exceeds 1 GB expanded")
                 basename=Path(name).name
-                if basename.casefold() in seen: raise ValueError(f"Duplicate ZIP basename: {basename}")
+                if basename.casefold() in seen: raise InputRefused(f"Duplicate ZIP basename: {basename}")
                 if Path(basename).suffix.lower() not in BYOD_EXTENSIONS and basename!="transcripts.csv":
-                    raise ValueError(f"Unsupported BYOD ZIP file: {basename}; supply images and optional transcripts.csv only")
+                    raise InputRefused(f"Unsupported BYOD ZIP file: {basename}; supply images and optional transcripts.csv only")
                 seen.add(basename.casefold()); members.append((info,basename))
             root=Path(tempfile.mkdtemp(prefix="ocr-byod-"))
             for info,basename in members: (root/basename).write_bytes(z.read(info))
     elif src.is_dir(): root=src
-    else: raise ValueError("BYOD_PATH must be directory or ZIP")
+    else: raise InputRefused("BYOD_PATH must be directory or ZIP")
     unexpected=[p.name for p in root.iterdir() if p.is_file() and p.suffix.lower() not in BYOD_EXTENSIONS and p.name!="transcripts.csv"]
-    if unexpected: raise ValueError(f"Unsupported BYOD files: {unexpected}; supply images and optional transcripts.csv only")
-    if any(p.is_dir() for p in root.iterdir()): raise ValueError("BYOD directories must contain page images directly, not nested folders")
+    if unexpected: raise InputRefused(f"Unsupported BYOD files: {unexpected}; supply images and optional transcripts.csv only")
+    if any(p.is_dir() for p in root.iterdir()): raise InputRefused("BYOD directories must contain page images directly, not nested folders")
     images=sorted(p for p in root.iterdir() if p.is_file() and p.suffix.lower() in BYOD_EXTENSIONS)
-    if not 1<=len(images)<=500: raise ValueError("BYOD supports 1..500 images")
+    if not 1<=len(images)<=500: raise InputRefused("BYOD supports 1..500 images")
     filenames=[p.name for p in images]
     if len({name.casefold() for name in filenames})!=len(filenames):
-        raise ValueError("Duplicate BYOD image filenames")
+        raise InputRefused("Duplicate BYOD image filenames")
     transcript_file=root/"transcripts.csv"; refs={}; ids={}; transcript_sha256=None
     labelled=transcript_file.is_file()
     if labelled:
@@ -1273,36 +1296,36 @@ def load_byod(path):
         table=[values for values in csv.reader(io.StringIO(payload.decode("utf-8-sig"))) if values]
         header=table[0] if table else []
         repeated=sorted({h for h in header if header.count(h)>1})
-        if repeated: raise ValueError(f"transcripts.csv has duplicate column names: {repeated}")
+        if repeated: raise InputRefused(f"transcripts.csv has duplicate column names: {repeated}")
         if len(table)<2 or not {"file","text"}.issubset(header):
-            raise ValueError("transcripts.csv requires file,text and exactly one row per image")
+            raise InputRefused("transcripts.csv requires file,text and exactly one row per image")
         rows=[]
         for number,values in enumerate(table[1:],1):
             if len(values)!=len(header):
-                raise ValueError(f"transcripts.csv row {number} has {len(values)} fields but the header has "
+                raise InputRefused(f"transcripts.csv row {number} has {len(values)} fields but the header has "
                                  f"{len(header)}; use an explicit empty CSV field for a blank page")
             rows.append(dict(zip(header,values)))
         for r in rows:
             name=(r.get("file") or "").strip()
-            if not name or name in refs: raise ValueError(f"Duplicate or empty transcript filename: {name!r}")
+            if not name or name in refs: raise InputRefused(f"Duplicate or empty transcript filename: {name!r}")
             refs[name]=normalise_text(r["text"])
             ids[name]=safe_identifier(r.get("id") or name)
         missing=sorted(set(filenames)-set(refs)); extra=sorted(set(refs)-set(filenames))
-        if missing or extra: raise ValueError(f"Transcript files must match images exactly; missing={missing}, extra={extra}")
+        if missing or extra: raise InputRefused(f"Transcript files must match images exactly; missing={missing}, extra={extra}")
     effective_ids=[ids.get(name,name) for name in filenames]
     if len({value.casefold() for value in effective_ids})!=len(effective_ids):
-        raise ValueError("BYOD ids must be unique")
+        raise InputRefused("BYOD ids must be unique")
     out=[]
     for p,record_id in zip(images,effective_ids,strict=True):
         payload=p.read_bytes()
         with Image.open(io.BytesIO(payload)) as decoded:
             frames=getattr(decoded,"n_frames",1)
             if frames>1:
-                raise ValueError(f"{p.name}: {frames} pages/frames; BYOD accepts single-page images only. "
+                raise InputRefused(f"{p.name}: {frames} pages/frames; BYOD accepts single-page images only. "
                                  "Save one file per page.")
             decoded.load(); image=decoded.convert("RGB")
         if min(image.size)<MIN_IMAGE_SIDE or max(image.size)>MAX_IMAGE_SIDE or image.width*image.height>MAX_IMAGE_PIXELS:
-            raise ValueError(f"{p.name}: outside image ceilings")
+            raise InputRefused(f"{p.name}: outside image ceilings")
         out.append({"id":record_id,"file":p.name,"image":image,"text":refs.get(p.name),
                     "source_sha256":hashlib.sha256(payload).hexdigest()})
     return out,labelled,{"source_zip_sha256":source_zip_sha256,"transcripts_sha256":transcript_sha256,
@@ -1409,6 +1432,11 @@ def stage_byod():
 # Section 28: terminal summary.
 # ---------------------------------------------------------------------------------------------
 def stage_summary():
+    global USE_BYOD
+    if USE_BYOD and not state_path("byod.json").is_file():
+        print("BYOD: no completed BYOD run in this session (the BYOD cell refused its input or was not run); "
+              "this summary covers the canonical path only.")
+        USE_BYOD=False
     OUT_ROOT=Path(OUTPUT_DIR)
     required=[OUT_ROOT/"belfort_results.csv",OUT_ROOT/"belfort_metrics.csv",OUT_ROOT/"page_text_metrics.csv",
      OUT_ROOT/"smoldocling_structure.csv",OUT_ROOT/"token_budget.csv",OUT_ROOT/"shape_robustness.csv",
@@ -1467,10 +1495,15 @@ def main(argv=None):
     configure(json.loads(Path(args.config).read_text(encoding="utf-8")))
     if args.stage != "environment" and state_path("runtime.json").is_file():
         RUNTIME = load_state("runtime.json")
-    if args.stage == "inspect":
-        stage_inspect(args.page)
-    else:
-        STAGES[args.stage]()
+    try:
+        if args.stage == "inspect":
+            stage_inspect(args.page)
+        else:
+            STAGES[args.stage]()
+    except InputRefused as error:
+        if args.stage != "byod":
+            raise
+        refuse(error)
     return 0
 
 

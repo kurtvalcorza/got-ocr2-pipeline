@@ -180,7 +180,8 @@ def test_carrier_cell_writes_files_that_hash_to_the_lock(tmp_path):
 def test_uv_revision_is_logged_in_the_notebook_metadata():
     revisions = _notebook()["metadata"]["dimer"]["review_revisions"]
     entry = next(r for r in revisions if r["date"] == "2026-10-03")
-    assert entry["change"] == "uv isolated environment" and entry["hosted_execution"] == "pending"
+    # Its blob 544009e6 was run on a hosted T4 on 2026-10-04 (docs/release-verification.md).
+    assert entry["change"] == "uv isolated environment" and "2026-10-04" in entry["hosted_execution"]
     assert entry["pins_changed"] == "none"
 
 
