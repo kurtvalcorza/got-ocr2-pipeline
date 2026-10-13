@@ -644,6 +644,68 @@ def doctags_to_text(x):
     return normalise_text(x)
 
 
+# Owner decision OCR2-CX2 = C: a markup-exclusion sensitivity of the Belfort scores. Declared rule: after the
+# usual extraction (doctags_to_text removes complete tags), a trailing unfinished tag is removed: "<" or "</"
+# followed only by tag-name letters, underscores and digits up to the end of the text (for example "<loc_5",
+# "</te", "<"). A tag cut off by the token budget can only sit at the end of the output, so nothing else changes.
+# The rule is applied to both models' texts for symmetry and only in the sensitivity table: the
+# configured-pipeline scores keep the extracted text unchanged.
+PARTIAL_TAG_RE=re.compile(r"</?[a-z_]*[0-9]*$")
+MARKUP_SENSITIVITY_FIELDS=["model","lines","configured_cer","configured_wer","markup_excluded_cer",
+                           "markup_excluded_wer","cer_change","wer_change","lines_with_partial_tag",
+                           "partial_tag_chars","truncated_lines","lines_unbalanced_element_tags",
+                           "lines_malformed_locations"]
+
+
+def strip_partial_markup(text):
+    """Return (text without a trailing unfinished tag, the removed fragment); the rule is declared above."""
+    text=normalise_text(text); hit=PARTIAL_TAG_RE.search(text)
+    if not hit: return text,""
+    return normalise_text(text[:hit.start()]),hit.group(0)
+
+
+def doctags_parse_failures(doctags):
+    """(unbalanced element tags, malformed locations) for one raw DocTags output; reported, never repaired."""
+    opened=Counter(); closed=Counter()
+    for m in TAG_RE.finditer(doctags):
+        (closed if m.group(0).startswith("</") else opened)[m.group(1)]+=1
+    unbalanced=any(opened[t]!=closed[t] for t in ELEMENT_TAGS)
+    locs=[int(v) for v in LOC_RE.findall(doctags)]
+    malformed=len(locs)%4!=0 or any(v<0 or v>500 for v in locs)
+    return unbalanced,malformed
+
+
+def markup_sensitivity(test_records,got_items,smol_items):
+    rows=[]
+    for model,items in (("GOT-OCR 2.0",got_items),("SmolDocling",smol_items)):
+        stripped=[strip_partial_markup(x["text"]) for x in items]
+        configured=corpus_metrics([x["text"] for x in items],test_records)
+        excluded=corpus_metrics([text for text,_ in stripped],test_records)
+        failures=[doctags_parse_failures(x["doctags"]) for x in items] if model=="SmolDocling" else None
+        rows.append({"model":model,"lines":len(items),
+                     "configured_cer":configured["cer"],"configured_wer":configured["wer"],
+                     "markup_excluded_cer":excluded["cer"],"markup_excluded_wer":excluded["wer"],
+                     "cer_change":excluded["cer"]-configured["cer"],"wer_change":excluded["wer"]-configured["wer"],
+                     "lines_with_partial_tag":sum(bool(f) for _,f in stripped),
+                     "partial_tag_chars":sum(len(f) for _,f in stripped),
+                     "truncated_lines":sum(bool(x["truncated"]) for x in items),
+                     "lines_unbalanced_element_tags":sum(u for u,_ in failures) if failures is not None else None,
+                     "lines_malformed_locations":sum(m for _,m in failures) if failures is not None else None})
+    return rows
+
+
+def show_markup_sensitivity(rows):
+    print("\nMarkup-exclusion sensitivity (Belfort test lines). The configured-pipeline rows above are the primary"
+          " result; this table rescores the same outputs with a trailing unfinished DocTags tag removed.")
+    print(f"{'model':<13}{'config CER':>11}{'excl CER':>10}{'config WER':>11}{'excl WER':>10}"
+          f"{'partial tags':>13}{'tag chars':>10}{'truncated':>10}{'unbalanced':>11}{'bad locs':>9}")
+    for r in rows:
+        extra=["-" if r[k] is None else r[k] for k in ("lines_unbalanced_element_tags","lines_malformed_locations")]
+        print(f"{r['model']:<13}{r['configured_cer']:>11.3f}{r['markup_excluded_cer']:>10.3f}"
+              f"{r['configured_wer']:>11.3f}{r['markup_excluded_wer']:>10.3f}{r['lines_with_partial_tag']:>13}"
+              f"{r['partial_tag_chars']:>10}{r['truncated_lines']:>10}{extra[0]:>11}{extra[1]:>9}")
+
+
 def doctags_summary(x):
     opened=Counter(m.group(1) for m in TAG_RE.finditer(x) if not m.group(0).startswith("</"))
     locs=[int(v) for v in LOC_RE.findall(x)]
@@ -1092,9 +1154,14 @@ def stage_compare():
                  "disagreement_category":cat})
         print(dict(groups))
         for row in belfort_metric_rows: print(row["system"],round(row["cer"],3),round(row["wer"],3))
+    markup_rows=[]
+    if RUN_BELFORT:
+        markup_rows=markup_sensitivity(test_records,got_belfort_items,smol_belfort_items)
+        show_markup_sensitivity(markup_rows)
     page_text_rows=load_state("got_pages.json")["rows"]+load_state("smol_pages.json")["rows"]
     save_state("compare.json",{"belfort_result_rows":belfort_result_rows,"belfort_metric_rows":belfort_metric_rows,
-                               "page_text_rows":page_text_rows,"inputs":state_digests(COMPARE_INPUTS)})
+                               "page_text_rows":page_text_rows,"inputs":state_digests(COMPARE_INPUTS),
+                               "markup_sensitivity":markup_rows})
 
 
 # Section 21: try it yourself.
@@ -1215,6 +1282,8 @@ def stage_export():
     write_csv(OUT_ROOT/"resource_metrics.csv",resource_rows,
      ["model","parameters","weight_bytes","input_strategy","snapshot_verify_seconds","load_seconds",
       "belfort_seconds","mean_line_latency_s","mean_page_latency_s","peak_gpu_memory_bytes"])
+    write_csv(OUT_ROOT/"belfort_markup_sensitivity.csv",compare.get("markup_sensitivity",[]),
+              MARKUP_SENSITIVITY_FIELDS)
 
     (OUT_ROOT/"got_format_outputs.json").write_text(json.dumps(got_format_outputs,indent=2,ensure_ascii=False),encoding="utf-8")
     (OUT_ROOT/"smoldocling_summary.json").write_text(json.dumps(smol_summaries,indent=2,ensure_ascii=False),encoding="utf-8")

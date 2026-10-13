@@ -305,3 +305,90 @@ def test_display_labels_for_structure_resources_and_word_diff(tmp_path, capsys):
     rows = ns["load_state"]("resources.json")
     kept = {"mean_line_latency_s", "mean_page_latency_s", "peak_gpu_memory_bytes"}  # export keys unchanged
     assert kept <= set(rows[0])
+
+
+# ---- Owner decision OCR2-CX2 = C: markup-exclusion sensitivity ------------------------------------------
+@pytest.mark.parametrize(("text", "kept", "removed"), [
+    ("abc <loc_5", "abc", "<loc_5"),
+    ("x </te", "x", "</te"),
+    ("abc <loc_", "abc", "<loc_"),
+    ("word <", "word", "<"),
+    ("<loc_12", "", "<loc_12"),
+    ("clean text", "clean text", ""),
+    ("a <b> c", "a <b> c", ""),
+    ("2 < 3", "2 < 3", ""),
+])
+def test_strip_partial_markup_rule(text, kept, removed):
+    import ocr_workshop as stages
+
+    assert stages.strip_partial_markup(text) == (kept, removed)
+
+
+@pytest.mark.parametrize("doctags", ["<text><loc_10><loc_20><loc_30><loc_5", "abc <loc_",
+                                     "<doctag><text><loc_1><loc_2><loc_3><loc_4>word</te"])
+def test_truncated_doctags_leave_no_markup_after_the_cleanup(doctags):
+    """The OCR2-m2 cases, through the usual extraction and then the declared rule."""
+    import ocr_workshop as stages
+
+    cleaned, _ = stages.strip_partial_markup(stages.doctags_to_text(doctags))
+    assert "<" not in cleaned and "loc_" not in cleaned
+
+
+def _belfort_compare_ns(tmp_path):
+    ns = stage_ns(tmp_path)
+    test = [{"id": "l1", "text": "Le conseil"}, {"id": "l2", "text": "municipal"}]
+    ns["save_state"]("belfort.json", {"splits": {"test": test}})
+    empty = ns["corpus_metrics"](["", ""], test)
+    baselines = {"empty_metrics": empty, "constant_metrics": empty, "constant_text": ""}
+    ns["save_state"]("baselines.json", baselines)
+    got = [dict(text="Le conseil", new_tokens=3, truncated=False, inference_seconds=0.1),
+            dict(text="municipal <", new_tokens=128, truncated=True, inference_seconds=0.1)]
+    box = "<loc_1><loc_2><loc_3><loc_4>"
+    smol = [dict(text="Le conseil", doctags=f"<text>{box}Le conseil</text>", new_tokens=9,
+                 truncated=False, inference_seconds=0.1),
+            dict(text="municip <loc_5", doctags=f"<text>{box}municip<loc_5", new_tokens=160,
+                 truncated=True, inference_seconds=0.1)]
+    for name, items in (("got_belfort.json", got), ("smol_belfort.json", smol)):
+        metrics = ns["corpus_metrics"]([x["text"] for x in items], test)
+        metrics.update(truncated=sum(x["truncated"] for x in items), empty_hypotheses=0)
+        ns["save_state"](name, {"items": items, "metrics": metrics, "seconds": 0.2, "peak_gpu": None})
+    for name in ("got_pages.json", "smol_pages.json"):
+        ns["save_state"](name, {"rows": []})
+    return ns, test, got, smol
+
+
+def test_sensitivity_table_leaves_the_configured_rows_unchanged(tmp_path, capsys):
+    ns, test, got, smol = _belfort_compare_ns(tmp_path)
+    ns["stage_compare"]()
+    out = capsys.readouterr().out
+    compare = ns["load_state"]("compare.json")
+    by_system = {r["system"]: r for r in compare["belfort_metric_rows"]}
+    for system, items in (("GOT-OCR 2.0", got), ("SmolDocling", smol)):
+        expected = ns["corpus_metrics"]([x["text"] for x in items], test)  # raw extracted text, as before
+        assert by_system[system]["cer"] == expected["cer"] and by_system[system]["wer"] == expected["wer"]
+    rows = {r["model"]: r for r in compare["markup_sensitivity"]}
+    for model in ("GOT-OCR 2.0", "SmolDocling"):
+        assert rows[model]["configured_cer"] == by_system[model]["cer"]
+    assert rows["SmolDocling"]["markup_excluded_cer"] < rows["SmolDocling"]["configured_cer"]
+    assert rows["SmolDocling"]["lines_with_partial_tag"] == 1
+    assert rows["SmolDocling"]["partial_tag_chars"] == 6
+    assert rows["SmolDocling"]["lines_unbalanced_element_tags"] == 1
+    assert rows["SmolDocling"]["lines_malformed_locations"] == 0
+    assert rows["GOT-OCR 2.0"]["lines_with_partial_tag"] == 1  # the same rule, applied symmetrically
+    assert rows["GOT-OCR 2.0"]["lines_unbalanced_element_tags"] is None
+    assert "Markup-exclusion sensitivity" in out and "primary" in out
+    assert [x["text"] for x in ns["load_state"]("smol_belfort.json")["items"]] == [x["text"] for x in smol]
+
+
+def test_sensitivity_is_exported_next_to_the_configured_metrics(tmp_path):
+    ns = _full_run(tmp_path)
+    ns["STAGES"]["export"]()
+    exported = tmp_path / "outputs" / "belfort_markup_sensitivity.csv"
+    header = exported.read_text(encoding="utf-8").splitlines()[0]
+    assert header.split(",") == ns["MARKUP_SENSITIVITY_FIELDS"]
+
+
+def test_sensitivity_wording():
+    """Wording check (OCR2-CX2 = C): the table is described as a sensitivity next to the primary result."""
+    assert "Markup-exclusion sensitivity (owner decision OCR2-CX2)" in _md("aaaebfe3")
+    assert "never repaired" in _md("aaaebfe3") and "belfort_markup_sensitivity.csv" in _md("3ee52ee6")
