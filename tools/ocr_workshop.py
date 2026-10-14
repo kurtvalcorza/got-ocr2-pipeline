@@ -644,6 +644,68 @@ def doctags_to_text(x):
     return normalise_text(x)
 
 
+# Owner decision OCR2-CX2 = C: a markup-exclusion sensitivity of the Belfort scores. Declared rule: after the
+# usual extraction (doctags_to_text removes complete tags), a trailing unfinished tag is removed: "<" or "</"
+# followed only by tag-name letters, underscores and digits up to the end of the text (for example "<loc_5",
+# "</te", "<"). A tag cut off by the token budget can only sit at the end of the output, so nothing else changes.
+# The rule is applied to both models' texts for symmetry and only in the sensitivity table: the
+# configured-pipeline scores keep the extracted text unchanged.
+PARTIAL_TAG_RE=re.compile(r"</?[a-z_]*[0-9]*$")
+MARKUP_SENSITIVITY_FIELDS=["model","lines","configured_cer","configured_wer","markup_excluded_cer",
+                           "markup_excluded_wer","cer_change","wer_change","lines_with_partial_tag",
+                           "partial_tag_chars","truncated_lines","lines_unbalanced_element_tags",
+                           "lines_malformed_locations"]
+
+
+def strip_partial_markup(text):
+    """Return (text without a trailing unfinished tag, the removed fragment); the rule is declared above."""
+    text=normalise_text(text); hit=PARTIAL_TAG_RE.search(text)
+    if not hit: return text,""
+    return normalise_text(text[:hit.start()]),hit.group(0)
+
+
+def doctags_parse_failures(doctags):
+    """(unbalanced element tags, malformed locations) for one raw DocTags output; reported, never repaired."""
+    opened=Counter(); closed=Counter()
+    for m in TAG_RE.finditer(doctags):
+        (closed if m.group(0).startswith("</") else opened)[m.group(1)]+=1
+    unbalanced=any(opened[t]!=closed[t] for t in ELEMENT_TAGS)
+    locs=[int(v) for v in LOC_RE.findall(doctags)]
+    malformed=len(locs)%4!=0 or any(v<0 or v>500 for v in locs)
+    return unbalanced,malformed
+
+
+def markup_sensitivity(test_records,got_items,smol_items):
+    rows=[]
+    for model,items in (("GOT-OCR 2.0",got_items),("SmolDocling",smol_items)):
+        stripped=[strip_partial_markup(x["text"]) for x in items]
+        configured=corpus_metrics([x["text"] for x in items],test_records)
+        excluded=corpus_metrics([text for text,_ in stripped],test_records)
+        failures=[doctags_parse_failures(x["doctags"]) for x in items] if model=="SmolDocling" else None
+        rows.append({"model":model,"lines":len(items),
+                     "configured_cer":configured["cer"],"configured_wer":configured["wer"],
+                     "markup_excluded_cer":excluded["cer"],"markup_excluded_wer":excluded["wer"],
+                     "cer_change":excluded["cer"]-configured["cer"],"wer_change":excluded["wer"]-configured["wer"],
+                     "lines_with_partial_tag":sum(bool(f) for _,f in stripped),
+                     "partial_tag_chars":sum(len(f) for _,f in stripped),
+                     "truncated_lines":sum(bool(x["truncated"]) for x in items),
+                     "lines_unbalanced_element_tags":sum(u for u,_ in failures) if failures is not None else None,
+                     "lines_malformed_locations":sum(m for _,m in failures) if failures is not None else None})
+    return rows
+
+
+def show_markup_sensitivity(rows):
+    print("\nMarkup-exclusion sensitivity (Belfort test lines). The configured-pipeline rows above are the primary"
+          " result; this table rescores the same outputs with a trailing unfinished DocTags tag removed.")
+    print(f"{'model':<13}{'config CER':>11}{'excl CER':>10}{'config WER':>11}{'excl WER':>10}"
+          f"{'partial tags':>13}{'tag chars':>10}{'truncated':>10}{'unbalanced':>11}{'bad locs':>9}")
+    for r in rows:
+        extra=["-" if r[k] is None else r[k] for k in ("lines_unbalanced_element_tags","lines_malformed_locations")]
+        print(f"{r['model']:<13}{r['configured_cer']:>11.3f}{r['markup_excluded_cer']:>10.3f}"
+              f"{r['configured_wer']:>11.3f}{r['markup_excluded_wer']:>10.3f}{r['lines_with_partial_tag']:>13}"
+              f"{r['partial_tag_chars']:>10}{r['truncated_lines']:>10}{extra[0]:>11}{extra[1]:>9}")
+
+
 def doctags_summary(x):
     opened=Counter(m.group(1) for m in TAG_RE.finditer(x) if not m.group(0).startswith("</"))
     locs=[int(v) for v in LOC_RE.findall(x)]
@@ -849,6 +911,9 @@ def stage_got_probes():
     save_state("got_probes.json",{"budget_rows":got_budget_rows,"shape_rows":got_shape_rows,
                                   "blank_noise":got_blank_noise})
     print({k:{x:v[x] for x in ("characters","new_tokens","truncated")} for k,v in got_blank_noise.items()})
+    for name,item in got_blank_noise.items():
+        show_block(f"GOT-OCR 2.0 · {name} probe: generated text (the image has no text)",
+                   item["text"] or "(no text generated)",400,state_path("got_probes.json"))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -948,14 +1013,15 @@ def stage_smol_pages():
             smol_page_results[pid]=item; smol_page_rows.append(page_row("SmolDocling",page,item,item["text"]))
             summary=doctags_summary(item["doctags"]); smol_summaries[pid]=summary
             smol_structure_rows.extend(structure_rows(pid,page["expected_counts"],summary))
-            print(pid,{"CER":round(smol_page_rows[-1]["cer"],3),"WER":round(smol_page_rows[-1]["wer"],3),
+            print(pid,"text scores and raw tag/token counts:",{"CER":round(smol_page_rows[-1]["cer"],3),"WER":round(smol_page_rows[-1]["wer"],3),
                        "elements":summary["n_elements"],"table_cells":summary["n_table_cells"],
                        "table_rows":summary["n_table_rows"],"OTSL_tokens":summary["n_otsl_tokens"]})
-        print(f"\n{'page':<16}{'scored element':<24}{'expected':>9}{'observed':>9}{'abs err':>8}")
+        print(f"\n{'page':<16}{'element (authored count)':<26}{'authored':>9}{'observed':>9}"
+              f"{'authored count discrepancy':>28}")
         for r in smol_structure_rows:
             if r["scored"]:
-                print(f"{r['page_id']:<16}{r['element_type']:<24}{r['expected_count']:>9}{r['observed_count']:>9}{r['absolute_count_error']:>8}")
-        print("Unscored observed types:",{f"{r['page_id']}:{r['element_type']}":r["observed_count"]
+                print(f"{r['page_id']:<16}{r['element_type']:<26}{r['expected_count']:>9}{r['observed_count']:>9}{r['absolute_count_error']:>28}")
+        print("Observed types without an authored count:",{f"{r['page_id']}:{r['element_type']}":r["observed_count"]
                                          for r in smol_structure_rows if not r["scored"]})
         show_block("SmolDocling native DocTags · report",smol_page_results["report"]["doctags"],1500,
                    PAGE_DIR/"report"/"smoldocling.doctags")
@@ -1013,6 +1079,11 @@ def stage_smol_probes():
     save_state("smol_probes.json",{"budget_rows":smol_budget_rows,"shape_rows":smol_shape_rows,
                                    "blank_noise":smol_blank_noise})
     print({k:{x:v[x] for x in ("characters","new_tokens","truncated")} for k,v in smol_blank_noise.items()})
+    for name,item in smol_blank_noise.items():
+        show_block(f"SmolDocling · {name} probe: extracted text (the image has no text)",
+                   item["text"] or "(no text generated)",400,state_path("smol_probes.json"))
+        show_block(f"SmolDocling · {name} probe: native DocTags",
+                   item["doctags"] or "(no DocTags generated)",400,state_path("smol_probes.json"))
     got_budget_rows=load_state("got_probes.json")["budget_rows"]
     if got_budget_rows or smol_budget_rows:
         print("\nPaired token-budget comparison · report page")
@@ -1026,6 +1097,26 @@ def stage_smol_probes():
 # ---------------------------------------------------------------------------------------------
 # Section 20: cross-model comparison.
 # ---------------------------------------------------------------------------------------------
+# Step results each summary combines. The export refuses to mix a summary with step results that changed
+# after it was computed (a re-run step), so every exported file describes the same run.
+COMPARE_INPUTS=("baselines.json","got_belfort.json","smol_belfort.json","got_pages.json","smol_pages.json")
+RESOURCE_INPUTS=("snapshots.json","belfort.json","got_load.json","smol_load.json","got_belfort.json",
+                 "smol_belfort.json","got_pages.json","smol_pages.json")
+
+
+def state_digests(names):
+    return {n:(hashlib.sha256(state_path(n).read_bytes()).hexdigest() if state_path(n).is_file() else None)
+            for n in names}
+
+
+def check_fresh(summary,inputs,recorded,rerun):
+    changed=sorted(n for n,d in state_digests(inputs).items() if recorded.get(n)!=d)
+    if changed:
+        raise RuntimeError(f"{summary} was computed before {', '.join(changed)} changed (a step was re-run). "
+                           f"Run {rerun} again, then this export cell, so every exported file describes "
+                           "the same run.")
+
+
 def summary_row(system,m,truncated=0,empty=0):
     return {"system":system,"cer":m["cer"],"cer_macro":m["cer_macro"],"wer":m["wer"],"wer_macro":m["wer_macro"],
             "exact_match":m["exact_match"],"median_cer":m["median_cer"],"p90_cer":m["p90_cer"],
@@ -1063,9 +1154,14 @@ def stage_compare():
                  "disagreement_category":cat})
         print(dict(groups))
         for row in belfort_metric_rows: print(row["system"],round(row["cer"],3),round(row["wer"],3))
+    markup_rows=[]
+    if RUN_BELFORT:
+        markup_rows=markup_sensitivity(test_records,got_belfort_items,smol_belfort_items)
+        show_markup_sensitivity(markup_rows)
     page_text_rows=load_state("got_pages.json")["rows"]+load_state("smol_pages.json")["rows"]
     save_state("compare.json",{"belfort_result_rows":belfort_result_rows,"belfort_metric_rows":belfort_metric_rows,
-                               "page_text_rows":page_text_rows})
+                               "page_text_rows":page_text_rows,"inputs":state_digests(COMPARE_INPUTS),
+                               "markup_sensitivity":markup_rows})
 
 
 # Section 21: try it yourself.
@@ -1088,7 +1184,8 @@ def stage_inspect(INSPECT_PAGE):
             if INSPECT_PAGE not in store: continue
             text=store[INSPECT_PAGE]["text"]
             show_block(f"{label} · {INSPECT_PAGE}",text,1500,PAGE_DIR/INSPECT_PAGE/filename)
-            print(f"First word-level differences, {label} vs reference:")
+            print(f"First word-level differences, {label} vs reference "
+                  "(case-sensitive illustrative text diff; not the WER alignment):")
             for d in word_diff(page["reference_text"],text,8) or [{"op":"none","reference":"","model":""}]:
                 print(f"  {d['op']:<8} reference={d['reference']!r}  model={d['model']!r}")
         if INSPECT_PAGE in smol_page_results and INSPECT_PAGE!="report":
@@ -1097,6 +1194,12 @@ def stage_inspect(INSPECT_PAGE):
 
 
 # Section 22: resource comparison.
+RESOURCE_LABELS={"belfort_seconds":"belfort_total_s (batched, incl. processor prep)",
+                 "mean_line_latency_s":"amortised_s_per_line (batched Belfort run)",
+                 "mean_page_latency_s":"generation_s_per_page (excludes processor prep)",
+                 "peak_gpu_memory_bytes":"peak_allocated_gpu_bytes (Belfort line inference only)"}
+
+
 def stage_resources():
     snapshots=load_state("snapshots.json"); test_count=len(load_state("belfort.json")["splits"]["test"])
     got_load,smol_load=load_state("got_load.json"),load_state("smol_load.json")
@@ -1120,7 +1223,9 @@ def stage_resources():
       "mean_page_latency_s":float(np.mean([x["inference_seconds"] for x in smol_page_results.values()])) if smol_page_results else None,
       "peak_gpu_memory_bytes":smol["peak_gpu"]}]
     save_state("resources.json",resource_rows)
-    for r in resource_rows:print(r)
+    save_state("resources_inputs.json",state_digests(RESOURCE_INPUTS))
+    # CX7: display labels say what each timing and memory figure covers (export keys are unchanged).
+    for r in resource_rows:print({RESOURCE_LABELS.get(k,k):v for k,v in r.items()})
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1140,6 +1245,10 @@ def compact(m):
 def stage_export():
     OUT_ROOT=Path(OUTPUT_DIR); OUT_ROOT.mkdir(parents=True,exist_ok=True); PAGE_DIR=page_dir()
     compare=load_state("compare.json"); baselines=load_state("baselines.json")
+    check_fresh("The cross-model comparison (Section 20)",COMPARE_INPUTS,compare.get("inputs",{}),
+                "the comparison cell (Section 20) and the resource cell (Section 22)")
+    check_fresh("The resource summary (Section 22)",RESOURCE_INPUTS,load_state("resources_inputs.json"),
+                "the resource cell (Section 22)")
     got_pages,smol_pages=load_state("got_pages.json"),load_state("smol_pages.json")
     got_probes,smol_probes=load_state("got_probes.json"),load_state("smol_probes.json")
     belfort_result_rows,belfort_metric_rows=compare["belfort_result_rows"],compare["belfort_metric_rows"]
@@ -1173,6 +1282,8 @@ def stage_export():
     write_csv(OUT_ROOT/"resource_metrics.csv",resource_rows,
      ["model","parameters","weight_bytes","input_strategy","snapshot_verify_seconds","load_seconds",
       "belfort_seconds","mean_line_latency_s","mean_page_latency_s","peak_gpu_memory_bytes"])
+    write_csv(OUT_ROOT/"belfort_markup_sensitivity.csv",compare.get("markup_sensitivity",[]),
+              MARKUP_SENSITIVITY_FIELDS)
 
     (OUT_ROOT/"got_format_outputs.json").write_text(json.dumps(got_format_outputs,indent=2,ensure_ascii=False),encoding="utf-8")
     (OUT_ROOT/"smoldocling_summary.json").write_text(json.dumps(smol_summaries,indent=2,ensure_ascii=False),encoding="utf-8")
@@ -1200,7 +1311,7 @@ def stage_export():
     (OUT_ROOT/"metrics.json").write_text(json.dumps(metrics_export,indent=2,ensure_ascii=False),encoding="utf-8")
 
     provenance={
-     "notebook_spec":"2.1","profile":"TASK-INFERENCE","pedagogical_mode":"WORKSHOP","standalone":True,
+     "notebook_spec":"2.5","profile":"TASK-INFERENCE","pedagogical_mode":"WORKSHOP","standalone":True,
      "got":{"model_id":GOT_MANIFEST["modelId"],"revision":GOT_MANIFEST["revision"],"license":"Apache-2.0",
             "manifest":GOT_MANIFEST,"parameter_count":got_parameter_count,
             "preprocessing":"1024x1024 square; aspect ratio not preserved","decoding":"greedy"},
@@ -1224,16 +1335,31 @@ def stage_export():
 # Section 26: BYOD, labelled or unlabelled.
 # ---------------------------------------------------------------------------------------------
 BYOD_EXTENSIONS={".png",".jpg",".jpeg",".webp",".tif",".tiff",".bmp"}
+# Exit code of a refused BYOD input. The stage prints the reason once and the notebook cell stops
+# without raising; any other failure keeps its traceback and still raises in the notebook.
+REFUSED_EXIT=65
+
+
+class InputRefused(ValueError):
+    """A BYOD input breaks a documented input rule (not a defect of this stage file)."""
+
+
+def refuse(error):
+    reason=str(error).rstrip(". ")
+    print(f"Refused: {reason}. Fix that file or BYOD_PATH, then run the BYOD cell again.",flush=True)
+    raise SystemExit(REFUSED_EXIT)
 
 
 def safe_identifier(value):
     value=str(value).strip()
     if not value or value in (".","..") or any(ch in value for ch in ("/", "\\", ":", "\x00")):
-        raise ValueError(f"Unsafe or empty BYOD id: {value!r}")
+        raise InputRefused(f"Unsafe or empty BYOD id: {value!r}")
     return value
 
 
 def load_byod(path):
+    if not str(path).strip():
+        raise InputRefused("BYOD_PATH is empty; set it to a directory or ZIP of page images")
     src=Path(path)
     source_zip_sha256=None
     if src.is_file() and src.suffix.lower()==".zip":
@@ -1244,28 +1370,28 @@ def load_byod(path):
                 name=info.filename.replace("\\","/"); parts=[p for p in name.split("/") if p]
                 if info.is_dir(): continue
                 if name.startswith("/") or ".." in parts or any(":" in part for part in parts):
-                    raise ValueError(f"unsafe ZIP member {name}")
+                    raise InputRefused(f"unsafe ZIP member {name}")
                 mode=(info.external_attr>>16)&0o170000
-                if mode==0o120000: raise ValueError(f"symlink refused {name}")
+                if mode==0o120000: raise InputRefused(f"symlink refused {name}")
                 total+=info.file_size
-                if total>1_000_000_000: raise ValueError("ZIP exceeds 1 GB expanded")
+                if total>1_000_000_000: raise InputRefused("ZIP exceeds 1 GB expanded")
                 basename=Path(name).name
-                if basename.casefold() in seen: raise ValueError(f"Duplicate ZIP basename: {basename}")
+                if basename.casefold() in seen: raise InputRefused(f"Duplicate ZIP basename: {basename}")
                 if Path(basename).suffix.lower() not in BYOD_EXTENSIONS and basename!="transcripts.csv":
-                    raise ValueError(f"Unsupported BYOD ZIP file: {basename}; supply images and optional transcripts.csv only")
+                    raise InputRefused(f"Unsupported BYOD ZIP file: {basename}; supply images and optional transcripts.csv only")
                 seen.add(basename.casefold()); members.append((info,basename))
             root=Path(tempfile.mkdtemp(prefix="ocr-byod-"))
             for info,basename in members: (root/basename).write_bytes(z.read(info))
     elif src.is_dir(): root=src
-    else: raise ValueError("BYOD_PATH must be directory or ZIP")
+    else: raise InputRefused("BYOD_PATH must be directory or ZIP")
     unexpected=[p.name for p in root.iterdir() if p.is_file() and p.suffix.lower() not in BYOD_EXTENSIONS and p.name!="transcripts.csv"]
-    if unexpected: raise ValueError(f"Unsupported BYOD files: {unexpected}; supply images and optional transcripts.csv only")
-    if any(p.is_dir() for p in root.iterdir()): raise ValueError("BYOD directories must contain page images directly, not nested folders")
+    if unexpected: raise InputRefused(f"Unsupported BYOD files: {unexpected}; supply images and optional transcripts.csv only")
+    if any(p.is_dir() for p in root.iterdir()): raise InputRefused("BYOD directories must contain page images directly, not nested folders")
     images=sorted(p for p in root.iterdir() if p.is_file() and p.suffix.lower() in BYOD_EXTENSIONS)
-    if not 1<=len(images)<=500: raise ValueError("BYOD supports 1..500 images")
+    if not 1<=len(images)<=500: raise InputRefused("BYOD supports 1..500 images")
     filenames=[p.name for p in images]
     if len({name.casefold() for name in filenames})!=len(filenames):
-        raise ValueError("Duplicate BYOD image filenames")
+        raise InputRefused("Duplicate BYOD image filenames")
     transcript_file=root/"transcripts.csv"; refs={}; ids={}; transcript_sha256=None
     labelled=transcript_file.is_file()
     if labelled:
@@ -1273,36 +1399,36 @@ def load_byod(path):
         table=[values for values in csv.reader(io.StringIO(payload.decode("utf-8-sig"))) if values]
         header=table[0] if table else []
         repeated=sorted({h for h in header if header.count(h)>1})
-        if repeated: raise ValueError(f"transcripts.csv has duplicate column names: {repeated}")
+        if repeated: raise InputRefused(f"transcripts.csv has duplicate column names: {repeated}")
         if len(table)<2 or not {"file","text"}.issubset(header):
-            raise ValueError("transcripts.csv requires file,text and exactly one row per image")
+            raise InputRefused("transcripts.csv requires file,text and exactly one row per image")
         rows=[]
         for number,values in enumerate(table[1:],1):
             if len(values)!=len(header):
-                raise ValueError(f"transcripts.csv row {number} has {len(values)} fields but the header has "
+                raise InputRefused(f"transcripts.csv row {number} has {len(values)} fields but the header has "
                                  f"{len(header)}; use an explicit empty CSV field for a blank page")
             rows.append(dict(zip(header,values)))
         for r in rows:
             name=(r.get("file") or "").strip()
-            if not name or name in refs: raise ValueError(f"Duplicate or empty transcript filename: {name!r}")
+            if not name or name in refs: raise InputRefused(f"Duplicate or empty transcript filename: {name!r}")
             refs[name]=normalise_text(r["text"])
             ids[name]=safe_identifier(r.get("id") or name)
         missing=sorted(set(filenames)-set(refs)); extra=sorted(set(refs)-set(filenames))
-        if missing or extra: raise ValueError(f"Transcript files must match images exactly; missing={missing}, extra={extra}")
+        if missing or extra: raise InputRefused(f"Transcript files must match images exactly; missing={missing}, extra={extra}")
     effective_ids=[ids.get(name,name) for name in filenames]
     if len({value.casefold() for value in effective_ids})!=len(effective_ids):
-        raise ValueError("BYOD ids must be unique")
+        raise InputRefused("BYOD ids must be unique")
     out=[]
     for p,record_id in zip(images,effective_ids,strict=True):
         payload=p.read_bytes()
         with Image.open(io.BytesIO(payload)) as decoded:
             frames=getattr(decoded,"n_frames",1)
             if frames>1:
-                raise ValueError(f"{p.name}: {frames} pages/frames; BYOD accepts single-page images only. "
+                raise InputRefused(f"{p.name}: {frames} pages/frames; BYOD accepts single-page images only. "
                                  "Save one file per page.")
             decoded.load(); image=decoded.convert("RGB")
         if min(image.size)<MIN_IMAGE_SIDE or max(image.size)>MAX_IMAGE_SIDE or image.width*image.height>MAX_IMAGE_PIXELS:
-            raise ValueError(f"{p.name}: outside image ceilings")
+            raise InputRefused(f"{p.name}: outside image ceilings")
         out.append({"id":record_id,"file":p.name,"image":image,"text":refs.get(p.name),
                     "source_sha256":hashlib.sha256(payload).hexdigest()})
     return out,labelled,{"source_zip_sha256":source_zip_sha256,"transcripts_sha256":transcript_sha256,
@@ -1409,6 +1535,11 @@ def stage_byod():
 # Section 28: terminal summary.
 # ---------------------------------------------------------------------------------------------
 def stage_summary():
+    global USE_BYOD
+    if USE_BYOD and not state_path("byod.json").is_file():
+        print("BYOD: no completed BYOD run in this session (the BYOD cell refused its input or was not run); "
+              "this summary covers the canonical path only.")
+        USE_BYOD=False
     OUT_ROOT=Path(OUTPUT_DIR)
     required=[OUT_ROOT/"belfort_results.csv",OUT_ROOT/"belfort_metrics.csv",OUT_ROOT/"page_text_metrics.csv",
      OUT_ROOT/"smoldocling_structure.csv",OUT_ROOT/"token_budget.csv",OUT_ROOT/"shape_robustness.csv",
@@ -1467,10 +1598,15 @@ def main(argv=None):
     configure(json.loads(Path(args.config).read_text(encoding="utf-8")))
     if args.stage != "environment" and state_path("runtime.json").is_file():
         RUNTIME = load_state("runtime.json")
-    if args.stage == "inspect":
-        stage_inspect(args.page)
-    else:
-        STAGES[args.stage]()
+    try:
+        if args.stage == "inspect":
+            stage_inspect(args.page)
+        else:
+            STAGES[args.stage]()
+    except InputRefused as error:
+        if args.stage != "byod":
+            raise
+        refuse(error)
     return 0
 
 
