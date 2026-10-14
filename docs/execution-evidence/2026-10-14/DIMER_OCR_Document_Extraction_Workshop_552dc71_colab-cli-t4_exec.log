@@ -1,0 +1,793 @@
+[colab] Parsing notebook '/home/kurt/colab-runs/got-ocr2-pipeline-552dc71-ce1fb7/DIMER_OCR_Document_Extraction_Workshop_552dc71_colab-cli-t4.ipynb'...
+[colab] Executing cell 1/26 - d1171b39...
+[colab] Executing cell 2/26 - Carried stage file and hash lock (infrastructure)...
+Carried stage file and hash lock verified: ['ocr_workshop.py', 'requirements.lock.txt']
+[colab] Executing cell 3/26 - Build the isolated runtime (pinned uv, CPython 3.12.12, hash-locked wheels)...
+GPU: Tesla T4
+Creating the isolated Python 3.12.12 environment...
+Installing the hashed dependency lock (several minutes; CUDA wheels are large)...
+{'python': '3.12.12', 'torch': '2.14.0+cu130', 'transformers': '4.57.6', 'numpy': '2.1.3', 'pyarrow': '25.0.1', 'device': 'cuda:0', 'dtype': 'float32', 'gpu_name': 'Tesla T4', 'isolated_environment': {'kind': 'uv isolated venv (CPython 3.12.12, hash-locked wheels)', 'uv': '0.12.15', 'install': 'uv pip install --require-hashes --only-binary :all:', 'lock_sha256': 'ecd72680406b422a32ff083d6b60af6b9e837a1d82c843d438cfd345751c0701', 'stage_file_sha256': '004124f5db3184c1bcc2e83c34df3634c2b903c9527e256a30d487c16209034a'}}
+{'kernel_python': '3.13.15', 'kernel_numpy': '2.1.3', 'kernel_pillow': '11.3.0'}
+[colab] Executing cell 4/26 - 95aa4a83...
+                                                                                
+ def stage_snapshot(manifest):                                                  
+     from huggingface_hub import hf_hub_download                                
+     root=SNAPSHOT_ROOT/manifest["modelKey"];                                   
+ root.mkdir(parents=True,exist_ok=True)                                         
+     (root/"dimer-base-manifest.json").write_text(json.dumps(manifest,indent=2) 
+ ,encoding="utf-8")                                                             
+     t=time.perf_counter()                                                      
+     for e in manifest["files"]:                                                
+         p=root/e["path"]                                                       
+         if not p.is_file():                                                    
+             p.parent.mkdir(parents=True,exist_ok=True)                         
+             hf_hub_download(repo_id=manifest["modelId"],filename=e["path"],    
+                             revision=manifest["revision"],local_dir=str(root)) 
+     for e in manifest["files"]:                                                
+         p=root/e["path"]                                                       
+         if p.stat().st_size!=e["bytes"] or sha256_file(p)!=e["sha256"]:        
+             raise RuntimeError(f"snapshot verification failed:                 
+ {manifest['modelKey']}/{e['path']}")                                           
+     return root,time.perf_counter()-t                                          
+                                                                                
+stepfun-ai/GOT-OCR-2.0-hf @ d3017ef2c2c1: 8 files, 1,139,869,676 bytes
+docling-project/SmolDocling-256M-preview @ ce51f56c4ebe: 13 files, 517,896,538 bytes
+Snapshots verified.
+True
+[colab] Executing cell 5/26 - 6f347d27...
+{'split_sizes': {'train': 600, 'validation': 60, 'test': 140}, 'digest': 'b7e1dd684691a0eedb63a609311f4964e7732e5c1a8d254fe4e1293a8cd0964d'}
+True
+[colab] Executing cell 6/26 - f859a00b...
+                                                                                
+ def edit_distance(reference,hypothesis):                                       
+     previous=list(range(len(hypothesis)+1))                                    
+     for i,a in enumerate(reference,1):                                         
+         current=[i]                                                            
+         for j,b in enumerate(hypothesis,1):                                    
+             current.append(min(current[-1]+1,previous[j]+1,previous[j-1]+(a!=b 
+ )))                                                                            
+         previous=current                                                       
+     return previous[-1]                                                        
+                                                                                
+ def one_metrics(reference,hypothesis):                                         
+     ref=normalise_text(reference); hyp=normalise_text(hypothesis)              
+     ce=edit_distance(ref,hyp); rw,hw=words(ref),words(hyp);                    
+ we=edit_distance(rw,hw)                                                        
+     return {"cer":ce/len(ref),"wer":we/len(rw),"exact_match":hyp==ref,         
+             "reference_chars":len(ref),"hypothesis_chars":len(hyp),            
+             "length_ratio":len(hyp)/len(ref),"char_edits":ce,"word_edits":we,  
+             "reference_words":len(rw)}                                         
+                                                                                
+ def corpus_metrics(hypotheses,records):                                        
+     rows=[{"id":r["id"],**one_metrics(r["text"],h)}                            
+           for h,r in zip(hypotheses,records,strict=True)]                      
+     return {"n":len(rows),                                                     
+             "cer":sum(x["char_edits"] for x in rows)/sum(x["reference_chars"]  
+ for x in rows),                                                                
+             "wer":sum(x["word_edits"] for x in rows)/sum(x["reference_words"]  
+ for x in rows),                                                                
+             "cer_macro":float(np.mean([x["cer"] for x in rows])),              
+             "wer_macro":float(np.mean([x["wer"] for x in rows])),              
+             "exact_match":float(np.mean([x["exact_match"] for x in rows])),    
+             "median_cer":float(np.median([x["cer"] for x in rows])),           
+             "p90_cer":float(np.quantile([x["cer"] for x in rows],0.9)),        
+             "ref_chars":sum(x["reference_chars"] for x in rows),               
+             "hyp_chars":sum(x["hypothesis_chars"] for x in rows),              
+             "length_ratio":sum(x["hypothesis_chars"] for x in                  
+ rows)/sum(x["reference_chars"] for x in rows),                                 
+             "rows":rows}                                                       
+                                                                                
+ def medoid_transcript(train,pool=120):                                         
+     texts=[normalise_text(r["text"]) for r in train[:pool] if                  
+ normalise_text(r["text"])]                                                     
+     return min(texts,key=lambda c:sum(edit_distance(other,c)/len(other) for    
+ other in texts))                                                               
+                                                                                
+{'empty_cer': 1.0, 'constant_cer': 0.9435889123034528, 'constant': 'idem'}
+True
+[colab] Executing cell 7/26 - 6bcb8c18...
+                                                                                
+ class PageText:                                                                
+     """Draws page text and records each visible string in the same call, in    
+ drawing order."""                                                              
+     def __init__(self,image): self.draw=ImageDraw.Draw(image); self.parts=[]   
+     def text(self,xy,value,size,bullet=False):                                 
+         missing=missing_glyphs(value,size)                                     
+         if missing: raise ValueError(f"default font cannot draw {missing} in   
+ {value!r}")                                                                    
+         x,y=xy                                                                 
+         if bullet:                                                             
+             r=max(2,size//6); cy=y+int(size*0.6)                               
+             self.draw.ellipse((x+2,cy-r,x+2+2*r,cy+r),fill="black"); x+=size   
+         self.draw.text((x,y),str(value),fill="black",font=fnt(size));          
+ self.parts.append(str(value))                                                  
+     def reference(self): return normalise_text(" ".join(self.parts))           
+                                                                                
+ def report():                                                                  
+     im=Image.new("RGB",(1100,1500),"white"); pg=PageText(im)                   
+     pg.text((70,45),"DOCUMENT EXTRACTION REPORT",38)                           
+     p1="This report summarizes a controlled document conversion exercise using 
+ synthetic text and deterministic tables."                                      
+     p2="The page is generated locally so every visible word and table cell has 
+ a known reference."                                                            
+     y=120; y=block(pg,p1,70,y,82,22)+18; y=block(pg,p2,70,y,82,22)+30          
+     r1=[["Item","Q1","Q2","Q3","Total"]]+[[f"Series {i}",i,i+1,i+2,3*i+3] for  
+ i in range(1,8)]                                                               
+     y=table(pg,70,y,[210,130,130,130,150],r1,38)+40                            
+     r2=[["Code","Count","Status"]]+[[f"A{i}",i*3,"Ready" if i%2 else "Review"] 
+ for i in range(1,5)]                                                           
+     y=table(pg,70,y,[240,170,300],r2,42)+35                                    
+     block(pg,"End of report. Verify extracted text and structural markup       
+ before downstream use.",70,y,82,22)                                            
+     return im,pg.reference(),{"section_header_level_1":1,"text":3,"otsl":2}    
+                                                                                
+{'notice': (1000, 1300), 'report': (1100, 1500), 'invoice': (1000, 1350), 'technical_note': (1050, 1300)}
+Reference = every visible string in drawing order: top to bottom, left to right, tables row by row (header first). Punctuation is kept as drawn; bullets are shapes, not text; whitespace is collapsed. Expected counts cover only the listed (scored) element types.
+<PIL.Image.Image image mode=RGB size=1040x370>
+
+[Image saved to: /tmp/tmp9s2pjy_n.png]
+notice: PUBLIC NOTICE Document Processing Workshop - 26 September 2026 The records office will conduct a scheduled document digitization activity this Friday. Participa … [+328 chars]
+report: DOCUMENT EXTRACTION REPORT This report summarizes a controlled document conversion exercise using synthetic text and deterministic tables. The page is generated … [+359 chars]
+invoice: INVOICE Invoice Number: INV-2026-0926 Date: 26 September 2026 Customer: Sample Research Office Address: C.P. Garcia Avenue, Diliman, Quezon City Description Qty … [+240 chars]
+technical_note: TECHNICAL NOTE The following expressions are rendered as plain text for deterministic extraction testing. Energy: E = m * c^2 Mean: x_bar = (x1 + x2 + x3) / 3 M … [+131 chars]
+[colab] Executing cell 8/26 - b6ccbfdc...
+                                                                                
+ def doctags_to_text(x):                                                        
+     x=LOC_RE.sub(" ",x); x=OTSL_RE.sub(" ",x); x=TAG_RE.sub(" ",x)             
+     return normalise_text(x)                                                   
+                                                                                
+ def strip_partial_markup(text):                                                
+     """Return (text without a trailing unfinished tag, the removed fragment);  
+ the rule is declared above."""                                                 
+     text=normalise_text(text); hit=PARTIAL_TAG_RE.search(text)                 
+     if not hit: return text,""                                                 
+     return normalise_text(text[:hit.start()]),hit.group(0)                     
+                                                                                
+ def doctags_summary(x):                                                        
+     opened=Counter(m.group(1) for m in TAG_RE.finditer(x) if not               
+ m.group(0).startswith("</"))                                                   
+     locs=[int(v) for v in LOC_RE.findall(x)]                                   
+     if any(v<0 or v>500 for v in locs): raise RuntimeError("loc token outside  
+ 0..500")                                                                       
+     otsl={t:len(re.findall(fr"<{t}>",x)) for t in OTSL_TYPES}                  
+     return {"counts":{t:opened.get(t,0) for t in ELEMENT_TAGS},                
+             "n_elements":sum(opened.get(t,0) for t in ELEMENT_TAGS),           
+             "n_loc_tokens":len(locs),"n_location_groups":len(locs)//4,         
+             "loc_tokens_divisible_by_4":len(locs)%4==0,                        
+             "n_table_cells":sum(otsl[t] for t in OTSL_CELL_START),             
+             "n_table_rows":otsl["nl"],                                         
+             "n_table_grid_positions":sum(otsl[t] for t in                      
+ OTSL_CELL_START+OTSL_MERGE_CONTINUATION),                                      
+             "n_otsl_tokens":sum(otsl.values()),                                
+             "otsl_token_counts":otsl,                                          
+             "wrapped_in_doctag":x.lstrip().startswith("<doctag>") and          
+ x.rstrip().endswith("</doctag>"),                                              
+             "n_chars":len(x)}                                                  
+                                                                                
+ def structure_rows(page_id,expected_counts,summary):                           
+     rows=[]                                                                    
+     for tag in sorted(set(expected_counts)|{t for t,n in                       
+ summary["counts"].items() if n}):                                              
+         observed=int(summary["counts"].get(tag,0)); scored=tag in              
+ expected_counts                                                                
+         expected=int(expected_counts[tag]) if scored else None                 
+         rows.append({"page_id":page_id,"element_type":tag,"scored":scored,"exp 
+ ected_count":expected,                                                         
+                      "observed_count":observed,"absolute_count_error":abs(expe 
+ cted-observed) if scored else None})                                           
+     return rows                                                                
+                                                                                
+ def page_row(model,page,item,text):                                            
+     m=one_metrics(page["reference_text"],text);                                
+ p,r,f=token_overlap(page["reference_text"],text)                               
+     return {"page_id":page["id"],"page_kind":page["kind"],"model":model,       
+             "cer":m["cer"],"wer":m["wer"],"token_precision":p,"token_recall":r 
+ ,"token_f1":f,                                                                 
+             "reference_chars":m["reference_chars"],"hypothesis_chars":m["hypot 
+ hesis_chars"],                                                                 
+             "length_ratio":m["length_ratio"],"new_tokens":item["new_tokens"],  
+             "truncated":item["truncated"],"inference_seconds":item.get("infere 
+ nce_seconds")}                                                                 
+                                                                                
+ def error_category(cer,ratio,empty,truncated):                                 
+     if truncated:return "truncated"                                            
+     if empty:return "empty"                                                    
+     if ratio>1.5:return "runaway_or_hallucinated"                              
+     if cer==0:return "exact"                                                   
+     if cer<0.2:return "mostly_correct"                                         
+     if cer<0.8:return "partial"                                                
+     return "severe"                                                            
+                                                                                
+[colab] Executing cell 9/26 - 9702f6d8...
+                                                                                
+ def load_got():                                                                
+     import torch                                                               
+     from transformers import AutoModelForImageTextToText, AutoProcessor        
+     got_dir=snapshot_dir("got"); DEVICE=device(); DTYPE=torch.float32          
+     t=time.perf_counter()                                                      
+     p=AutoProcessor.from_pretrained(str(got_dir),local_files_only=True,trust_r 
+ emote_code=False)                                                              
+     m=AutoModelForImageTextToText.from_pretrained(                             
+         str(got_dir),local_files_only=True,trust_remote_code=False,dtype=DTYPE 
+ ).eval().to(DEVICE)                                                            
+     for x in m.parameters(): x.requires_grad_(False)                           
+     pad=p.tokenizer.pad_token_id;                                              
+ stop=p.tokenizer.convert_tokens_to_ids(GOT_STOP)                               
+     original=m.model.get_image_features                                        
+     def chunked(pixel_values,**kwargs):                                        
+         if pixel_values.shape[0]<=1:return                                     
+ original(pixel_values=pixel_values,**kwargs)                                   
+         return torch.cat([original(pixel_values=pixel_values[i:i+1],**kwargs)  
+                           for i in range(pixel_values.shape[0])],dim=0)        
+     m.model.get_image_features=chunked                                         
+     return m,p,pad,stop,time.perf_counter()-t                                  
+                                                                                
+ def got_generate(model,processor,pad_id,stop_id,images,mode,budget):           
+     import torch                                                               
+     if mode not in ("plain","format"): raise ValueError(mode)                  
+     if not 1<=budget<=GOT_MAX_NEW_TOKENS: raise ValueError(budget)             
+     inputs=processor(list(images),return_tensors="pt",padding=True,format=(mod 
+ e=="format"))                                                                  
+     if not bool(inputs["attention_mask"].all()): raise RuntimeError("GOT batch 
+ prompts differ in length")                                                     
+     inputs=inputs.to(device())                                                 
+     if torch.cuda.is_available():torch.cuda.synchronize()                      
+     t=time.perf_counter()                                                      
+     with torch.inference_mode():                                               
+         generated=model.generate(**inputs,do_sample=False,tokenizer=processor. 
+ tokenizer,                                                                     
+                                  stop_strings=GOT_STOP,max_new_tokens=budget)  
+     if torch.cuda.is_available():torch.cuda.synchronize()                      
+     elapsed=time.perf_counter()-t;                                             
+ prompt_len=int(inputs["input_ids"].shape[1]); out=[]                           
+     for row in generated:                                                      
+         ids=row[prompt_len:].tolist(); n=len(ids)                              
+         for pos,token in enumerate(ids):                                       
+             if token in (stop_id,pad_id):                                      
+                 n=pos+(token==stop_id); break                                  
+         text=processor.decode(row[prompt_len:prompt_len+n],skip_special_tokens 
+ =True)                                                                         
+         out.append({"text":str(text).replace(GOT_STOP,"").strip(),"mode":mode, 
+ "new_tokens":int(n),                                                           
+                     "truncated":n>=budget,"inference_seconds":elapsed/len(imag 
+ es)})                                                                          
+     return out                                                                 
+                                                                                
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+{'load_seconds': 3.8414683279999906, 'parameters': 560528640}
+True
+[colab] Executing cell 10/26 - 95eac6d4...
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+GOT 40 / 140
+GOT 80 / 140
+GOT 120 / 140
+{'cer': 1.3449505592478521, 'wer': 1.7797101449275363, 'cer_macro': 1.2992839349076102, 'exact_match': 0.014285714285714285, 'length_ratio': 1.564435078618901, 'truncated': 29}
+True
+[colab] Executing cell 11/26 - 404be7e1...
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+notice 0.023 0.119 | PUBLIC NOTICE Document Processing Workshop- 26 September 2026 The records office will conduct a scheduled document digitization activity this Friday.  Part lcl  … [+342 chars]
+report 0.0 0.0 | DOCUMENT EXTRACTION REPORT
+This report summarizes a controlled document conversion exercise using synthetic
+text and deterministic tables.
+The page is generate … [+361 chars]
+invoice 0.003 0.017 | INVOICE
+Invoice Number: INV-2026-0926
+Date: 26 September 2026
+Customer: Sample Research Office
+Address: C.P. Garcia Avenue, Dillman, Quezon City
+Description
+Qty … [+240 chars]
+technical_note 0.003 0.0 | TECHNICAL NOTE
+The following expressions are rendered as plain text for deterministic
+extraction testing.
+Energy: E = m * C^2
+Mean: x_bar = (x1 + x2 + x3) / 3
+ … [+132 chars]
+GOT format · report (314 tokens, truncated=False)                               
+
+                                                                                
+ \title{                                                                        
+ DOCUMENT EXTRACTION REPORT                                                     
+ }                                                                              
+ This report summarizes a controlled document conversion exercise using         
+ synthetic text and deterministic tables.                                       
+ The page is generated locally so every visible word and table cell has a known 
+ reference.                                                                     
+ \begin{tabular}{|l|l|l|l|l|}                                                   
+ \hline Item & Q1 & Q2 & Q3 & Total \\                                          
+ \hline Series 1 & 1 & 2 & 3 & 6 \\                                             
+ \hline Series 2 & 2 & 3 & 4 & 9 \\                                             
+ \hline Series 3 & 3 & 4 & 5 & 12 \\                                            
+ \hline Series 4 & 4 & 5 & 6 & 15 \\                                            
+ \hline Series 5 & 5 & 6 & 7 & 18 \\                                            
+ \hline Series 6 & 6 & 7 & 8 & 21 \\                                            
+ \hline Series 7 & 7 & 8 & 9 & 24 \\                                            
+ \hline                                                                         
+ \end{tabular}                                                                  
+ \begin{tabular}{|l|l|l|}                                                       
+ \hline Code & Count & Status \\                                                
+ \hline A1 & 3 & Ready \\                                                       
+ \hline A2 & 6 & Review \\                                                      
+ \hline A3 & 9 & Ready \\                                                       
+ \hline A4 & 12 & Review \\                                                     
+ \hline                                                                         
+ \end{tabular}                                                                  
+ End of report. Verify extracted text and s … [+39 chars; full text:            
+ outputs/document_extraction/pages/report/got_format.txt]                       
+                                                                                
+GOT format · invoice (225 tokens, truncated=False)                              
+
+                                                                                
+ \title{                                                                        
+ INVOICE                                                                        
+ }                                                                              
+ \section*{Invoice Number: INV-2026-0926}                                       
+ Date: 26 September 2026                                                        
+ Customer: Sample Research Office                                               
+ Address: C.P. Garcia Avenue, Dillman, Quezon City                              
+ \begin{tabular}{|l|l|l|l|}                                                     
+ \hline Description & Qty & Unit Price & Amount \\                              
+ \hline Document scan & 3 & 120.00 & 360.00 \\                                  
+ \hline OCR review & 2 & 250.00 & 500.00 \\                                     
+ \hline Structure check & 1 & 400.00 & 400.00 \\                                
+ \hline                                                                         
+ \end{tabular}                                                                  
+ Subtotal: \(1,260.00\)                                                         
+ Tax: 151.20                                                                    
+ Total: \(1,411.20\)                                                            
+ Payment note: This synthetic invoice is for OCR and document extraction        
+ testing only.                                                                  
+                                                                                
+GOT format · technical_note (142 tokens, truncated=False)                       
+
+                                                                                
+ \title{                                                                        
+ TECHNICAL NOTE                                                                 
+ }                                                                              
+ The following expressions are rendered as plain text for deterministic         
+ extraction testing.                                                            
+ \[                                                                             
+ \text { Energy: } \mathrm{E}=\mathrm{m} * \mathrm{C} \wedge 2                  
+ \]                                                                             
+ \[                                                                             
+ \text { Mean: } \mathrm{x} \text {-bar }=(\mathrm{x} 1+\mathrm{x} 2+\mathrm{x} 
+ 3) / 3                                                                         
+ \]                                                                             
+ Measured value: \(12.5 \mathrm{~kJ}\). Tolerance: plus or minus \(0.2          
+ \mathrm{~kJ}\).                                                                
+ The formulas above are instructional content, not production measurements.     
+                                                                                
+True
+[colab] Executing cell 12/26 - a30b91a7...
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+/content/work/document_extraction/runner/ocr_workshop.py:875: DeprecationWarning: 'mode' parameter is deprecated and will be removed in Pillow 13 (2026-10-15)
+  noise=Image.fromarray(rng.integers(0,256,size=(600,800,3),dtype=np.uint8),"RGB")
+{'blank': {'characters': 9, 'new_tokens': 8, 'truncated': False}, 'noise': {'characters': 26, 'new_tokens': 9, 'truncated': False}}
+GOT-OCR 2.0 · blank probe: generated text (the image has no text)               
+
+                                                                                
+ (0) = 1 +                                                                      
+                                                                                
+GOT-OCR 2.0 · noise probe: generated text (the image has no text)               
+
+                                                                                
+ DRAFT—Preliminary Use Only                                                     
+                                                                                
+True
+[colab] Executing cell 13/26 - a4e45935...
+GOT released.
+[colab] Executing cell 14/26 - 8e2f39d8...
+                                                                                
+ def messages(instruction):                                                     
+     return                                                                     
+ [{"role":"user","content":[{"type":"image"},{"type":"text","text":instruction} 
+ ]}]                                                                            
+                                                                                
+ def load_smoldoc():                                                            
+     import torch                                                               
+     from transformers import AutoModelForImageTextToText, AutoProcessor        
+     smol_dir=snapshot_dir("smoldocling"); DEVICE=device(); DTYPE=torch.float32 
+     t=time.perf_counter()                                                      
+     p=AutoProcessor.from_pretrained(str(smol_dir),local_files_only=True,trust_ 
+ remote_code=False)                                                             
+     m=AutoModelForImageTextToText.from_pretrained(                             
+         str(smol_dir),local_files_only=True,trust_remote_code=False,dtype=DTYP 
+ E).eval().to(DEVICE)                                                           
+     for x in m.parameters():x.requires_grad_(False)                            
+     return                                                                     
+ m,p,p.tokenizer.convert_tokens_to_ids("<end_of_utterance>"),p.tokenizer.pad_to 
+ ken_id,time.perf_counter()-t                                                   
+                                                                                
+ def smol_generate(model,processor,end_id,pad_id,images,instruction,budget):    
+     import torch                                                               
+     if instruction not in SMOL_INSTRUCTIONS:raise ValueError(instruction)      
+     if not 1<=budget<=SMOL_MAX_NEW_TOKENS:raise ValueError(budget)             
+     prompt=processor.apply_chat_template(messages(instruction),add_generation_ 
+ prompt=True)                                                                   
+     processor.tokenizer.padding_side="left"                                    
+     inputs=processor(text=[prompt]*len(images),images=[[im.convert("RGB")] for 
+ im in images],                                                                 
+                      return_tensors="pt",padding=True).to(device())            
+     if torch.cuda.is_available():torch.cuda.synchronize()                      
+     t=time.perf_counter()                                                      
+     with torch.inference_mode():                                               
+ generated=model.generate(**inputs,max_new_tokens=budget,do_sample=False)       
+     if torch.cuda.is_available():torch.cuda.synchronize()                      
+     elapsed=time.perf_counter()-t;                                             
+ prompt_len=int(inputs["input_ids"].shape[1]); out=[]                           
+     for row in generated[:,prompt_len:]:                                       
+         ids=row.tolist(); n=len(ids)                                           
+         for pos,token in enumerate(ids):                                       
+             if token in (end_id,pad_id):                                       
+                 n=pos+(token==end_id);break                                    
+         raw=processor.tokenizer.decode(ids[:n],skip_special_tokens=False)      
+         for term in SMOL_TERMINATORS:raw=raw.replace(term,"")                  
+         raw=raw.strip()                                                        
+         out.append({"doctags":raw,"text":doctags_to_text(raw),"instruction":in 
+ struction,                                                                     
+                     "new_tokens":int(n),"truncated":n>=budget,"inference_secon 
+ ds":elapsed/len(images)})                                                      
+     return out                                                                 
+                                                                                
+{'load_seconds': 1.5304476430000022, 'parameters': 256484928}
+True
+[colab] Executing cell 15/26 - f0d3d353...
+/content/work/document_extraction/env/lib/python3.12/site-packages/transformers/tokenization_utils_base.py:2919: UserWarning: `max_length` is ignored when `padding`=`True` and there is no truncation strategy. To pad to max length, use `padding='max_length'`.
+  warnings.warn(
+/content/work/document_extraction/env/lib/python3.12/site-packages/transformers/tokenization_utils_base.py:2919: UserWarning: `max_length` is ignored when `padding`=`True` and there is no truncation strategy. To pad to max length, use `padding='max_length'`.
+  warnings.warn(
+SmolDocling 40 / 140
+SmolDocling 80 / 140
+SmolDocling 120 / 140
+{'cer': 1.4388069379153834, 'wer': 2.490821256038647, 'cer_macro': 1.3918290714242398, 'exact_match': 0.0, 'length_ratio': 0.7844059004700924, 'truncated': 29}
+SmolDocling lines whose scored text ends in an unfinished DocTags tag: 5 of 140; those fragments add 32 characters against 6169 reference characters.
+[colab] Executing cell 16/26 - 538a6cda...
+/content/work/document_extraction/env/lib/python3.12/site-packages/transformers/tokenization_utils_base.py:2919: UserWarning: `max_length` is ignored when `padding`=`True` and there is no truncation strategy. To pad to max length, use `padding='max_length'`.
+  warnings.warn(
+notice text scores and raw tag/token counts: {'CER': 0.012, 'WER': 0.045, 'elements': 10, 'table_cells': 0, 'table_rows': 0, 'OTSL_tokens': 0}
+/content/work/document_extraction/env/lib/python3.12/site-packages/transformers/tokenization_utils_base.py:2919: UserWarning: `max_length` is ignored when `padding`=`True` and there is no truncation strategy. To pad to max length, use `padding='max_length'`.
+  warnings.warn(
+report text scores and raw tag/token counts: {'CER': 0.008, 'WER': 0.028, 'elements': 6, 'table_cells': 70, 'table_rows': 14, 'OTSL_tokens': 84}
+invoice text scores and raw tag/token counts: {'CER': 0.007, 'WER': 0.034, 'elements': 11, 'table_cells': 16, 'table_rows': 4, 'OTSL_tokens': 20}
+technical_note text scores and raw tag/token counts: {'CER': 0.003, 'WER': 0.02, 'elements': 6, 'table_cells': 0, 'table_rows': 0, 'OTSL_tokens': 0}
+page            element (authored count)   authored observed  authored count discrepancy
+notice          list_item                         3        3                           0
+notice          page_footer                       1        1                           0
+notice          section_header_level_1            1        1                           0
+notice          text                              4        4                           0
+report          otsl                              2        1                           1
+report          section_header_level_1            1        1                           0
+report          text                              3        4                           1
+invoice         key_value_region                  1        0                           1
+invoice         otsl                              1        1                           0
+invoice         section_header_level_1            1        1                           0
+invoice         text                              8        9                           1
+technical_note  formula                           2        0                           2
+technical_note  section_header_level_1            1        1                           0
+technical_note  text                              3        5                           2
+Observed types without an authored count: {'notice:unordered_list': 1}
+SmolDocling native DocTags · report                                             
+
+                                                                                
+ <doctag><section_header_level_1><loc_18><loc_12><loc_309><loc_30>DOCUMENT      
+ EXTRACTION REPORT</section_header_level_1>                                     
+ <text><loc_25><loc_36><loc_418><loc_45>This report summarizes a controlled     
+ document conversion exercises using synthetic</text>                           
+ <text><loc_25><loc_48><loc_166><loc_57>text and deterministic tables.</text>   
+ <text><loc_25><loc_64><loc_396><loc_84>The page is generated locally so every  
+ visible word and table cell has a known reference.</text>                      
+ <otsl><loc_24><loc_93><loc_376><loc_285><ched>Item<ched>Q1<ched>Q2<ched>Q3<che 
+ d>Total<nl><fcel>Series 1<fcel>1<fcel>2<fcel>3<fcel>6<nl><fcel>Series          
+ 2<fcel>2<fcel>3<fcel>4<fcel>9<nl><fcel>Series                                  
+ 3<fcel>3<fcel>4<fcel>5<fcel>12<nl><fcel>Series                                 
+ 4<fcel>4<fcel>5<fcel>6<fcel>15<nl><fcel>Series                                 
+ 5<fcel>5<fcel>6<fcel>7<fcel>18<nl><fcel>Series                                 
+ 6<fcel>6<fcel>7<fcel>8<fcel>9<nl><fcel>Series                                  
+ 7<fcel>6<fcel>8<fcel>9<fcel>24<nl><ecel><ecel><ecel><ecel><ecel><nl><fcel>Code 
+ <fcel>Count<fcel>Status<ecel><ecel><nl><fcel>A1<fcel>3<fcel>Ready<ecel><ecel>< 
+ nl><fcel>A2<fcel>6<fcel>Review<ecel><ecel><nl><fcel>A3<fcel>9<fcel>Ready<ecel> 
+ <ecel><nl><fcel>A4<fcel>12<fcel>Review<ecel><ecel><nl></otsl>                  
+ <text><loc_25><loc_287><loc_413><loc_300>End of report. Verify extracted text  
+ and structural markup before downstream use.</text>                            
+ </doctag>                                                                      
+                                                                                
+True
+[colab] Executing cell 17/26 - ba8e3722...
+/content/work/document_extraction/env/lib/python3.12/site-packages/transformers/tokenization_utils_base.py:2919: UserWarning: `max_length` is ignored when `padding`=`True` and there is no truncation strategy. To pad to max length, use `padding='max_length'`.
+  warnings.warn(
+report Convert table to OTSL. 2048 True
+report · Convert table to OTSL.                                                 
+
+                                                                                
+ <otsl><loc_0><loc_0><loc_500><loc_500><ecel><ecel><ecel><ecel><nl><ecel><ecel> 
+ <ecel><ecel><nl><ecel><ecel><ecel><ecel><nl><ecel><ecel><ecel><ecel><nl><ecel> 
+ <ecel><ecel><ecel><nl><ecel><ecel><ecel><ecel><nl><ecel><ecel><ecel><ecel><nl> 
+ <ecel><ecel><ecel><ecel><nl><ecel><ecel><ecel><ecel><nl><ecel><ecel><ecel><ece 
+ l><nl><ecel><ecel><ecel><ecel><nl><ecel><ecel><ecel><ecel><nl><ecel><ecel><ece 
+ l><ecel><nl><ecel><ecel><ecel><ecel><nl><ecel><ecel><ecel><ecel><nl><ecel><ece 
+ l><ecel><ecel><nl><ecel><ecel><ecel><ecel><nl><ecel><ecel><ecel><ecel><nl><ece 
+ l><ecel><ecel><ecel><nl><ecel><ecel><ecel><ecel><nl><ecel><ecel><ecel><ecel><n 
+ l><ecel><ecel><ecel><ecel><nl><ecel><ecel><ecel><ecel><nl><ecel><ecel><ecel><e 
+ cel><nl><ecel><ecel><ecel><ecel><nl><ecel><ecel><ecel><ecel><nl><ecel><ecel><e 
+ cel><ecel><nl><ecel> … [+10606 chars; full text:                               
+ outputs/document_extraction/specialized_instruction_outputs.json]              
+                                                                                
+/content/work/document_extraction/env/lib/python3.12/site-packages/transformers/tokenization_utils_base.py:2919: UserWarning: `max_length` is ignored when `padding`=`True` and there is no truncation strategy. To pad to max length, use `padding='max_length'`.
+  warnings.warn(
+technical_note Convert formula to LaTeX. 121 False
+technical_note · Convert formula to LaTeX.                                      
+
+                                                                                
+ <formula><loc_0><loc_0><loc_500><loc_500><_SQL_> TECHNICAL NOTE                
+                                                                                
+ The following expressions are rendered as plain text for deterministic         
+ extraction testing.                                                            
+                                                                                
+ Energy: E = r * c^2                                                            
+                                                                                
+ Mean: x_bar = (x1 + x2 + x3) / 3                                               
+                                                                                
+ Measured value: 12.5 kJ. Tolerance: plus or minus 0.2 kJ.                      
+                                                                                
+ The formulas above are instructional content, not production measurements.     
+                                                                                
+ </code>                                                                        
+                                                                                
+report Find all 'text' elements on the page, retrieve all section headers. 78 False
+report · Find all 'text' elements on the page, retrieve all section headers.    
+
+                                                                                
+ <section_header_level_1><loc_23><loc_35><loc_416><loc_45>This report           
+ summarizes a controlled document conversion exercises using                    
+ synthetic</section_header_level_1>                                             
+ <section_header_level_1><loc_23><loc_65><loc_393><loc_84>The page is generated 
+ locally so every visible word and table cell has a known                       
+ reference.</section_header_level_1>                                            
+                                                                                
+notice Detect footer elements on the page. 30 False
+notice · Detect footer elements on the page.                                    
+
+                                                                                
+ <page_footer><loc_30><loc_463><loc_213><loc_473>DIMER Document Intelligence    
+ Workshop</page_footer>                                                         
+                                                                                
+True
+[colab] Executing cell 18/26 - 1581facc...
+/content/work/document_extraction/env/lib/python3.12/site-packages/transformers/tokenization_utils_base.py:2919: UserWarning: `max_length` is ignored when `padding`=`True` and there is no truncation strategy. To pad to max length, use `padding='max_length'`.
+  warnings.warn(
+/content/work/document_extraction/env/lib/python3.12/site-packages/transformers/tokenization_utils_base.py:2919: UserWarning: `max_length` is ignored when `padding`=`True` and there is no truncation strategy. To pad to max length, use `padding='max_length'`.
+  warnings.warn(
+/content/work/document_extraction/runner/ocr_workshop.py:875: DeprecationWarning: 'mode' parameter is deprecated and will be removed in Pillow 13 (2026-10-15)
+  noise=Image.fromarray(rng.integers(0,256,size=(600,800,3),dtype=np.uint8),"RGB")
+{'blank': {'characters': 228, 'new_tokens': 256, 'truncated': True}, 'noise': {'characters': 0, 'new_tokens': 25, 'truncated': False}}
+SmolDocling · blank probe: extracted text (the image has no text)               
+
+                                                                                
+ Copyright : www.visualnews.com Copyright : www.visualnews.com Copyright :      
+ www.visualnews.com Copyright : www.visualnews.com Copyright :                  
+ www.visualnews.com Copyright : www.visualnews.com Copyright :                  
+ www.visualnews.com Copyright :                                                 
+                                                                                
+SmolDocling · blank probe: native DocTags                                       
+
+                                                                                
+ <doctag><text><loc_154><loc_10><loc_346><loc_20>Copyright :                    
+ www.visualnews.com</text>                                                      
+ <text><loc_154><loc_20><loc_346><loc_29>Copyright : www.visualnews.com</text>  
+ <text><loc_154><loc_29><loc_346><loc_39>Copyright : www.visualnews.com</text>  
+ <text><loc_154><loc_40><loc_346><loc_50>Copyright : www.visualnews.com</text>  
+ <text><loc_154><loc_50><loc_346><loc_60>Copyright : www.visualnews.com</text>  
+ <t … [+205 chars; full text: work/document_extraction/state/smol_probes.json]  
+                                                                                
+SmolDocling · noise probe: extracted text (the image has no text)               
+
+                                                                                
+ (no text generated)                                                            
+                                                                                
+SmolDocling · noise probe: native DocTags                                       
+
+                                                                                
+ <doctag><picture><loc_0><loc_0><loc_500><loc_500><other></picture>             
+ </doctag>                                                                      
+                                                                                
+Paired token-budget comparison · report page
+model         budget generated truncated     CER     WER  cells  rows
+GOT-OCR 2.0      256       191     False   0.000   0.000      -     -
+GOT-OCR 2.0      512       191     False   0.000   0.000      -     -
+GOT-OCR 2.0     1024       191     False   0.000   0.000      -     -
+GOT-OCR 2.0     2048       191     False   0.000   0.000      -     -
+SmolDocling      256       256      True   0.308   0.318     36     7
+SmolDocling      512       367     False   0.008   0.028     70    14
+SmolDocling     1024       367     False   0.008   0.028     70    14
+SmolDocling     2048       367     False   0.008   0.028     70    14
+SmolDocling     4096       367     False   0.008   0.028     70    14
+True
+[colab] Executing cell 19/26 - c0a34547...
+{'both_poor': 137, 'got_only_good': 3}
+Empty baseline 1.0 1.0
+Constant baseline 0.944 0.999
+GOT-OCR 2.0 1.345 1.78
+SmolDocling 1.439 2.491
+Markup-exclusion sensitivity (Belfort test lines). The configured-pipeline rows above are the primary result; this table rescores the same outputs with a trailing unfinished DocTags tag removed.
+model         config CER  excl CER config WER  excl WER partial tags tag chars truncated unbalanced bad locs
+GOT-OCR 2.0        1.345     1.345      1.780     1.780            0         0        29          -        -
+SmolDocling        1.439     1.440      2.491     2.490            5        32        29         29        8
+True
+[colab] Executing cell 20/26 - e46ae80f...
+notice GOT-OCR 2.0 CER 0.023 WER 0.119 token_F1 0.928
+report GOT-OCR 2.0 CER 0.0 WER 0.0 token_F1 1.0
+invoice GOT-OCR 2.0 CER 0.003 WER 0.017 token_F1 0.983
+technical_note GOT-OCR 2.0 CER 0.003 WER 0.0 token_F1 1.0
+notice SmolDocling CER 0.012 WER 0.045 token_F1 0.978
+report SmolDocling CER 0.008 WER 0.028 token_F1 0.972
+invoice SmolDocling CER 0.007 WER 0.034 token_F1 0.966
+technical_note SmolDocling CER 0.003 WER 0.02 token_F1 0.98
+<PIL.Image.Image image mode=RGB size=700x955>
+
+[Image saved to: /tmp/tmpiq75kgnn.png]
+Reference · report                                                              
+
+                                                                                
+ DOCUMENT EXTRACTION REPORT This report summarizes a controlled document        
+ conversion exercise using synthetic text and deterministic tables. The page is 
+ generated locally so every visible word and table cell has a known reference.  
+ Item Q1 Q2 Q3 Total Series 1 1 2 3 6 Series 2 2 3 4 9 Series 3 3 4 5 12 Series 
+ 4 4 5 6 15 Series 5 5 6 7 18 Series 6 6 7 8 21 Series 7 7 8 9 24 Code Count    
+ Status A1 3 Ready A2 6 Review A3 9 Ready A4 12 Review End of report. Verify    
+ extracted text and structural markup before downstream use.                    
+                                                                                
+GOT-OCR 2.0 plain · report                                                      
+
+                                                                                
+ DOCUMENT EXTRACTION REPORT                                                     
+ This report summarizes a controlled document conversion exercise using         
+ synthetic                                                                      
+ text and deterministic tables.                                                 
+ The page is generated locally so every visible word and table cell has a known 
+ reference.                                                                     
+ Item                                                                           
+ Q1                                                                             
+ Q2                                                                             
+ Q3                                                                             
+ Total                                                                          
+ Series 1                                                                       
+ 1                                                                              
+ 2                                                                              
+ 3                                                                              
+ 6                                                                              
+ Series 2                                                                       
+ 2                                                                              
+ 3                                                                              
+ 4                                                                              
+ 9                                                                              
+ Series 3                                                                       
+ 3                                                                              
+ 4                                                                              
+ 5                                                                              
+ 12                                                                             
+ Series 4                                                                       
+ 4                                                                              
+ 5                                                                              
+ 6                                                                              
+ 15                                                                             
+ Series 5                                                                       
+ 5                                                                              
+ 6                                                                              
+ 7                                                                              
+ 18                                                                             
+ Series 6                                                                       
+ 6                                                                              
+ 7                                                                              
+ 8                                                                              
+ 21                                                                             
+ Series 7                                                                       
+ 7                                                                              
+ 8                                                                              
+ 9                                                                              
+ 24                                                                             
+ Code                                                                           
+ Count                                                                          
+ Status                                                                         
+ A1                                                                             
+ 3                                                                              
+ Ready                                                                          
+ A2                                                                             
+ 6                                                                              
+ Review                                                                         
+ A3                                                                             
+ 9                                                                              
+ Ready                                                                          
+ A4                                                                             
+ 12                                                                             
+ Review                                                                         
+ End of report. Verify extracted text and structural markup before downstream   
+ use.                                                                           
+                                                                                
+First word-level differences, GOT-OCR 2.0 plain vs reference (case-sensitive illustrative text diff; not the WER alignment):
+  none     reference=''  model=''
+SmolDocling text · report                                                       
+
+                                                                                
+ DOCUMENT EXTRACTION REPORT This report summarizes a controlled document        
+ conversion exercises using synthetic text and deterministic tables. The page   
+ is generated locally so every visible word and table cell has a known          
+ reference. Item Q1 Q2 Q3 Total Series 1 1 2 3 6 Series 2 2 3 4 9 Series 3 3 4  
+ 5 12 Series 4 4 5 6 15 Series 5 5 6 7 18 Series 6 6 7 8 9 Series 7 6 8 9 24    
+ Code Count Status A1 3 Ready A2 6 Review A3 9 Ready A4 12 Review End of        
+ report. Verify extracted text and structural markup before downstream use.     
+                                                                                
+First word-level differences, SmolDocling text vs reference (case-sensitive illustrative text diff; not the WER alignment):
+  replace  reference='exercise'  model='exercises'
+  replace  reference='21'  model='9'
+  replace  reference='7'  model='6'
+True
+[colab] Executing cell 21/26 - b2fbb746...
+{'model': 'GOT-OCR 2.0', 'parameters': 560528640, 'weight_bytes': 1121114488, 'input_strategy': '1024x1024 square; aspect ratio not preserved', 'snapshot_verify_seconds': 11.239078406000004, 'load_seconds': 3.8414683279999906, 'belfort_total_s (batched, incl. processor prep)': 154.90672450800002, 'amortised_s_per_line (batched Belfort run)': 1.1064766036285716, 'generation_s_per_page (excludes processor prep)': 5.3685830699999855, 'peak_allocated_gpu_bytes (Belfort line inference only)': 4923259392}
+{'model': 'SmolDocling', 'parameters': 256484928, 'weight_bytes': 513028808, 'input_strategy': 'longest edge 2048; 512px tiles + global view', 'snapshot_verify_seconds': 7.800114076, 'load_seconds': 1.5304476430000022, 'belfort_total_s (batched, incl. processor prep)': 160.19902421400002, 'amortised_s_per_line (batched Belfort run)': 1.1442787443857145, 'generation_s_per_page (excludes processor prep)': 11.08860145425001, 'peak_allocated_gpu_bytes (Belfort line inference only)': 4074939904}
+True
+[colab] Executing cell 22/26 - 0d0ce785...
+SmolDocling released.
+[colab] Executing cell 23/26 - 8cb50171...
+Exports written.
+[colab] Executing cell 24/26 - 9165c76c...
+Panel font: DejaVu Sans
+outputs/document_extraction/belfort_examples/example_01.png
+<PIL.Image.Image image mode=RGB size=1100x410>
+
+[Image saved to: /tmp/tmpcv_vzcty.png]
+  REF:  régulariser l'achat
+  GOT:  in400Ω
+  SMOL: 
+outputs/document_extraction/belfort_examples/example_02.png
+<PIL.Image.Image image mode=RGB size=1100x410>
+
+[Image saved to: /tmp/tmpw4606tet.png]
+  REF:  agrandie dans l'avenir
+  GOT:  ogamore does it a term?
+  SMOL: a.g.
+outputs/document_extraction/belfort_examples/example_03.png
+<PIL.Image.Image image mode=RGB size=1100x410>
+
+[Image saved to: /tmp/tmpd68ftmp_.png]
+  REF:  différentes répétitions, et de faire autant
+  GOT:  diferutus delenst duet et ce future aulatus
+  SMOL: d ifteut > > > > > > <loc_5
+outputs/document_extraction/belfort_examples/example_04.png
+<PIL.Image.Image image mode=RGB size=1100x410>
+
+[Image saved to: /tmp/tmpdgji7f2s.png]
+  REF:  Séance du 18 Pluviôse an 11
+  GOT:  Vance" in 18% (uridean11
+  SMOL: L'HUCHL
+outputs/document_extraction/belfort_examples/example_05.png
+<PIL.Image.Image image mode=RGB size=1100x410>
+
+[Image saved to: /tmp/tmp8vmlrj0q.png]
+  REF:  Monsieur BUSSIERE proteste contre Monsieur NAEGELEN, propriétaire
+  GOT:  Mn200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+  SMOL: 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1
+outputs/document_extraction/belfort_examples/example_06.png
+<PIL.Image.Image image mode=RGB size=1100x410>
+
+[Image saved to: /tmp/tmpanb92ff4.png]
+  REF:  procès-verbal d'une visite dressé par les
+  GOT:  of Deus for all  a finite time powerpoint
+  SMOL: Jannus
+[colab] Executing cell 25/26 - 63fd18ce...
+BYOD disabled.
+[colab] Executing cell 26/26 - 1303f6e0...
+DIMER OCR & Document Extraction Notebook
+--------------------------------------------
+Belfort held-out lines: 140
+System                      CER      WER    Exact
+Empty baseline            1.000    1.000    0.000
+Constant baseline         0.944    0.999    0.000
+GOT-OCR 2.0               1.345    1.780    0.014
+SmolDocling               1.439    2.491    0.000
+Rendered pages: 4
+GOT-OCR 2.0 mean CER 0.007 mean WER 0.034 truncated 0
+SmolDocling mean CER 0.008 mean WER 0.032 truncated 0
+SmolDocling table cells / rows (logical, row ends excluded): 86 / 18
+Outputs: outputs/document_extraction
+True
+[colab] Saving notebook with outputs to '/home/kurt/colab-runs/got-ocr2-pipeline-552dc71-ce1fb7/DIMER_OCR_Document_Extraction_Workshop_552dc71_colab-cli-t4_output.ipynb'...
