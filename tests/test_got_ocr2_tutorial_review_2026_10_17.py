@@ -304,6 +304,12 @@ def test_no_permanent_scored_once_claims():
     assert "scored once)" not in nb_text and "reported result (scored once)" not in nb_text
     assert "a page-disjoint split is impossible" not in _markdown() and "That is the claim" not in _markdown()
     assert "test_examples" not in _code_after("## 4. Belfort lines")  # review m9
+    # score-once rule item 6: no permanent "scored/reported once" prose anywhere a learner or a reader of the record sees
+    once = re.compile(r"(scored|scores|score|reported|reports)( on it| the fresh test| the exposed development test)? once", re.IGNORECASE)
+    root = NOTEBOOK.parents[1]
+    for path in (NOTEBOOK, root / "README.md", root / "tutorials" / "README.md", root / "MODEL_CARD.md", root / "STATUS.md", *sorted((root / "src").rglob("*.py"))):
+        hits = once.findall(path.read_text(encoding="utf-8"))
+        assert not hits, (path.name, hits)
 
 
 def test_bootstrap_interval_is_deterministic_and_paired():
@@ -380,7 +386,7 @@ def test_cer_is_read_as_edits_per_reference_character():
     assert "'char_edits': frozen_test['char_edits']" in _code_after("## 6. Baselines")
 
 
-def test_selection_is_on_validation_and_the_test_is_scored_once():
+def test_selection_is_on_validation_and_the_fresh_test_is_scored_only_under_preregistered_settings():
     markdown = _markdown()
     for stale in ("moved the held-out number", "1.302", "on its own 80-line test split", "test CER still ended at 1.040", "build record"):
         assert stale not in markdown, stale

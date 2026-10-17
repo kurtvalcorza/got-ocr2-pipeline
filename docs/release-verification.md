@@ -188,7 +188,7 @@ not general estimates.
 The notebook was regenerated for the row 30 tutorial review. Its new blob has **no hosted run yet**; the rows below are pending and are filled from the executed notebooks, not from expectations.
 
 - **Pre-registered grid (GOT2-M1).** `docs/recipe-grid-preregistration.md`, committed before any run: G1 5e-5 (default), G2 1e-4, G3 2.5e-5; 600 training lines, 6 epochs, batch 8, seeds 42/0, last 4 layers; best epoch by lowest validation CER; G2/G3 replace G1 only if better by more than 0.05; the frozen model is kept unless beaten by more than 0.05. `RUN_RECIPE_GRID` is off by default; the grid runs once from branch `fix/got-ocr2-tutorial-review-2026-10-17-gridrun` (the PR head plus one generated commit that sets only `RUN_RECIPE_GRID = True`).
-- **Fresh test (GOT2-M1).** Row groups 8–9 of the same shard, 200 lines `belfort-test-800`..`-999`, `FRESH_TEST_DIGEST` `59e018c4…d245`; 0 shared ids, row groups or images with the sample's splits (measured 2026-10-17); scored only under the pre-registered settings (score-once rule; pre-registration amendment 1). The old 140-line test split is reported once as the exposed development test.
+- **Fresh test (GOT2-M1).** Row groups 8–9 of the same shard, 200 lines `belfort-test-800`..`-999`, `FRESH_TEST_DIGEST` `59e018c4…d245`; 0 shared ids, row groups or images with the sample's splits (measured 2026-10-17); scored only under the pre-registered settings (score-once rule; pre-registration amendment 1). The old 140-line test split is shown, labelled, as the exposed development test (history, not the result).
 
 **Run plan (score-once rule, Kurt 2026-10-17; pre-registration amendment 1), in this order:**
 
