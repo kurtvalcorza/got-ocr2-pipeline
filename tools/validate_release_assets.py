@@ -1,6 +1,6 @@
 """Static release-asset validation for the GOT-OCR 2.0 optical character recognition DIMER pipeline.
 
-Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.2 §4), the tutorial
+Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.5 §4), the tutorial
 registry, model card, README, STATUS.md and weight documentation for source conformance and
 cross-document identity consistency, and runs the generator parity checks (PAR1–PAR3).
 
@@ -33,7 +33,7 @@ MODEL_LOAD_EXPR = f"{PIPELINE_CLASS}.from_pretrained(weights_dir=WEIGHTS_DIR)"
 # sample is pinned to (samples.py CORPUS_REVISION).
 KNOWN_SHAS: frozenset[str] = frozenset(("c4a74bbd39f2df314752e7e6026649a39d365cbb",))
 # Colab form gates that must default to the non-interactive sample path.
-BYOD_GATES = ("USE_BYOD",)
+BYOD_GATES = ("USE_BYOD", "RUN_RECIPE_GRID")  # RUN_RECIPE_GRID: review GOT2-M1, the grid is off by default
 # Machine-readable artifacts the notebook must write (OUT1-OUT3, OUT8, DAT24, EVAL21).
 EXPECTED_OUTPUTS = (
     "outputs/got_ocr2_train.csv",
@@ -78,7 +78,20 @@ CODE_MARKERS = (
     "baseline_empty = empty_baseline(test_records)",
     "baseline_constant = constant_baseline(train_records, test_records)",
     "frozen_test = pipe.evaluate(test_records, max_new_tokens=LINE_MAX_NEW_TOKENS, batch_size=EVAL_BATCH_SIZE)",
-    "adapt_result = pipe.adapt(train_records, val_records, epochs=EPOCHS, lr=LEARNING_RATE, batch_size=BATCH_SIZE, max_new_tokens=LINE_MAX_NEW_TOKENS, progress=report)",
+    "adapt_result = pipe.adapt(train_records, val_records, epochs=EPOCHS, lr=LEARNING_RATE, batch_size=BATCH_SIZE, max_new_tokens=LINE_MAX_NEW_TOKENS, progress=report, min_gain=RECIPE_MARGIN)",
+    # GOT2-M1 (row 30 review, 2026-10-17): the pre-registered grid behind a form field, the fresh test and the exposed
+    # development test reported once; GOT2-m7: BYOD refusals print one message and invalidate the run.
+    "RUN_RECIPE_GRID = False",
+    "recipe_grid = select_recipe(grid_results, default=RECIPE_DEFAULT, margin=RECIPE_MARGIN)",
+    "fresh_groups = fetch_corpus(cache_dir='weights/belfort', groups=FRESH_TEST_ROW_GROUPS)",
+    "fresh_records, fresh_report = build_fresh_test(read_corpus(fresh_groups), splits)",
+    "if dev_test_records is not None and first_look:",
+    "'test_look': test_look,",
+    "class ByodRefusal(ValueError):",
+    "dimer_stop = True",
+    "require_valid_run('Section 6')",
+    "require_valid_run('Section 9')",
+    "print(f'BYOD refused: {exc}')",
     "adapted_test = pipe.evaluate(test_records, max_new_tokens=LINE_MAX_NEW_TOKENS, batch_size=EVAL_BATCH_SIZE)",
     "adapted_val = pipe.evaluate(val_records, max_new_tokens=LINE_MAX_NEW_TOKENS, batch_size=EVAL_BATCH_SIZE)",
     # GOT-m2: the outcome is recorded, not asserted; GOT-M4: CER and WER are answered separately per baseline
@@ -136,6 +149,16 @@ MARKDOWN_MARKERS = (
     # GOT-m3: the run-to-run spread is stated; GOT-M4: the WER answer is stated
     "**Run-to-run spread.**",
     "**not the word error rate**",
+    # GOT2-M1 / M2 / m1 / m4 / m8 (row 30 review)
+    "**Choosing the learning rate: a pre-registered grid.**",
+    "with the fresh test scored once after the choice",
+    "**exposed development test**",
+    "**fresh test**",
+    "**edits per reference character**",
+    "**Pretraining overlap (DAT9):**",
+    "up to float32 rounding",
+    "`DIMER_ISOLATED_ENV`",
+    "> **⚠️ Notice.** For research, training and evaluation only.",
 )
 # Learner-facing text the review fixes removed; it must not come back (GOT-M1 restart/install text, GOT-M3 the
 # leakage claim, GOT-m1 the wrong BYOD minimum, GOT-m3 the wrong test-split size, GOT-m2 the asserted gain, GOT-M5
@@ -146,6 +169,14 @@ STALE_MARKDOWN = (
     "installs the pinned dependencies",
     "without leakage",
     "line-disjoint",
+    # row 30 review: test-driven selection (GOT2-M1), the inverted CER reading (GOT2-M2), the over-claim (GOT2-m3),
+    # unlabelled quotes (GOT2-m2) and the "exactly" tail-loss claim (GOT2-m4)
+    "moved the held-out number",
+    "on its own 80-line test split",
+    "three characters in four now right",
+    "reading cursive French",
+    "previous notebook version",
+    "the loss equals the full model's loss exactly",
     "at least eight images",
     "a dataset needs 8..5,000 records",
     "Eighty lines",
@@ -201,10 +232,11 @@ INSTALL_CELL_MARKER = "subprocess.run([sys.executable, '-m', 'pip', 'install', '
 # ---------------------------------------------------------------------------
 # Shared checks. Everything below is source/structure validation only. Passing
 # these checks is NOT clean-runtime execution evidence under DIMER Notebook
-# Specification 2.2; see docs/release-verification.md for the release gate.
+# Specification 2.5; see docs/release-verification.md for the release gate.
 # ---------------------------------------------------------------------------
 
-NOTEBOOK_SPEC = "2.2"
+NOTEBOOK_SPEC = "2.5"
+NOTEBOOK_KIND = "TUTORIAL"  # NOTEBOOK_SPEC 2.5 KND1 (review GOT2-m5)
 ALLOWED_PROFILES = {"E2E", "ARTIFACT-INFERENCE", "TASK-INFERENCE", "MULTI-CAPABILITY", "SMOKE"}
 STATUS_TOKENS = ("Candidate", "Release-grade")
 PLACEHOLDER = re.compile(r"\b(TODO|TBD|FIXME)\b|Insert text here|Tooltip:", re.I)
@@ -535,6 +567,7 @@ def _validate_notebook_structure(path: Path, notebook: dict) -> tuple[list[tuple
     spec = dimer.get("notebook_spec", dimer.get("notebook_spec_version"))
     _check(spec == NOTEBOOK_SPEC, f"{path.name}: metadata.dimer must declare notebook spec version '{NOTEBOOK_SPEC}'")
     _check(dimer.get("notebook_mode") in ("REFERENCE", "GUIDED", "WORKSHOP"), f"{path.name}: metadata.dimer.notebook_mode must declare a §3.3 pedagogical mode")
+    _check(dimer.get("notebook_kind") == NOTEBOOK_KIND, f"{path.name}: metadata.dimer.notebook_kind must be {NOTEBOOK_KIND!r} (KND1)")
     _check(dimer.get("standalone") is True, f"{path.name}: metadata.dimer.standalone must be true (ST6)")
     generated = dimer.get("generated_from")
     _template = _load_tool("notebook_template").TEMPLATE

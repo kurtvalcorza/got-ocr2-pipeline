@@ -136,8 +136,11 @@ def test_twelve_lines_pass_section4_and_eleven_are_refused_naming_the_split(monk
     ns = _section4(monkeypatch, tmp_path, byod_path=str(_zip(tmp_path, "twelve", 12)))
     assert {k: len(v) for k, v in ns["splits"].items()} == {"test": 2, "validation": 2, "train": 8}
     assert ns["byod"]["distinct_images"] == 12 and ns["data_source"] == "BYOD (twelve.zip)"
-    with pytest.raises(ValueError, match=r"the train split would hold 7 records \(at least 8 are required\).*at least 12 distinct images"):
-        _section4(monkeypatch, tmp_path, byod_path=str(_zip(tmp_path, "eleven", 11)))
+    # Row 30 review GOT2-m7: a refusal is printed as one message and invalidates the run; it does not raise.
+    ns = _section4(monkeypatch, tmp_path, byod_path=str(_zip(tmp_path, "eleven", 11)))
+    assert ns["RUN_STATE"]["valid"] is False
+    assert re.search(r"the train split would hold 7 records \(at least 8 are required\).*at least 12 distinct images", ns["RUN_STATE"]["reason"])
+    assert (tmp_path / "outputs" / "got_ocr2_run_invalidated.json").is_file()
 
 
 def test_pixel_duplicates_are_reported_before_the_split(monkeypatch, tmp_path, capsys):
@@ -153,15 +156,16 @@ def test_duplicate_file_names_in_two_folders_are_refused(tmp_path):
         load_byod_dataset(_zip(tmp_path, "clash", 12, clash=True))
 
 
-def test_cancelled_upload_and_no_colab_are_actionable(monkeypatch, tmp_path):
+def test_cancelled_upload_and_no_colab_are_actionable(monkeypatch, tmp_path, capsys):
+    # Row 30 review GOT2-m7: upload-acquisition failures go through the same printed refusal as contract refusals.
     _fake_colab(monkeypatch, [{}])
-    with pytest.raises(ValueError, match="Upload exactly one .zip file \\(received 0\\).*BYOD_PATH"):
-        _section4(monkeypatch, tmp_path)
+    ns = _section4(monkeypatch, tmp_path)
+    assert ns["RUN_STATE"]["valid"] is False and re.search(r"Upload exactly one .zip file \(received 0\).*BYOD_PATH", capsys.readouterr().out)
     monkeypatch.setitem(sys.modules, "google.colab", None)  # `from google.colab import files` raises ImportError
-    with pytest.raises(RuntimeError, match="needs Google Colab.*BYOD_PATH"):
-        _section4(monkeypatch, tmp_path)
-    with pytest.raises(FileNotFoundError, match="does not exist in this runtime"):
-        _section4(monkeypatch, tmp_path, byod_path=str(tmp_path / "missing.zip"))
+    ns = _section4(monkeypatch, tmp_path)
+    assert ns["RUN_STATE"]["valid"] is False and re.search(r"BYOD refused: The upload dialog needs Google Colab.*BYOD_PATH", capsys.readouterr().out)
+    ns = _section4(monkeypatch, tmp_path, byod_path=str(tmp_path / "missing.zip"))
+    assert ns["RUN_STATE"]["valid"] is False and "does not exist in this runtime" in capsys.readouterr().out
 
 
 def test_an_uploaded_zip_goes_through_section4(monkeypatch, tmp_path):
@@ -204,7 +208,7 @@ def test_transcript_overlap_and_duplicate_helper():
 def test_split_wording_and_breakdown():
     markdown = _markdown()
     assert "without leakage" not in markdown and "line-disjoint" not in markdown
-    for marker in ("**What the split does and does not protect against.**", "**same-collection estimate**", "**The split is by line image, not by page:**", "135 test lines whose transcript does not occur in training", "The Florence-2 sibling row uses this exact split"):
+    for marker in ("**What the split does and does not protect against.**", "**same-collection estimate**", "**The split is by line image, not by page:**", "135 lines whose transcript does not occur in training", "The Florence-2 sibling row uses this exact split"):
         assert marker in markdown, marker
     assert "overlap = {'validation': transcript_overlap(train_records, val_records)" in _code_after("## 4. Belfort lines")
     section8 = _code_after("## 8. Held-out evaluation")
@@ -325,11 +329,13 @@ def _section8(monkeypatch, tmp_path, adapted_reader, *, best_epoch=3) -> dict:
     adapted = GotOcr2Pipeline(batch(adapted_reader), "cpu", adapter={"best_epoch": best_epoch})
     ns: dict = {name: getattr(got, name) for name in got.__all__}
     ns.update({"os": __import__("os"), "Path": Path, "json": json, "pipe": adapted, "METRICS": ("cer", "wer", "cer_macro", "exact_match"), "LINE_MAX_NEW_TOKENS": 128, "USE_BYOD": True, "EPOCHS": 6, "LEARNING_RATE": 5e-5, "data_source": "BYOD (x.zip)", "dataset_manifests": {"test": {"digest": "d"}}, "disjoint": {"test": 6}, "adapt_seconds": 1.0, "test_records": test_records, "val_records": val_records})
+    # Row 30 review: the names Sections 4 and 7 now define (test set label, development test, grid choice, run state).
+    ns.update({"train_records": train_records, "dev_test_records": None, "test_name": "BYOD test split", "fresh_report": None, "data_label": "BYOD", "chosen_config": "G1", "recipe_grid": None, "require_valid_run": lambda section: None})
     ns["baseline_empty"] = got.empty_baseline(test_records)
     ns["baseline_constant"] = got.constant_baseline(train_records, test_records)
     ns["frozen_test"] = frozen.evaluate(test_records)
     ns["overlap"] = {"validation": [], "test": transcript_overlap(train_records, test_records)}
-    ns["adapt_result"] = {"best_epoch": best_epoch, "history": [], "trainable_names": [], "seed": 0}
+    ns["adapt_result"] = {"best_epoch": best_epoch, "history": [], "trainable_names": [], "seed": 0, "lr": 5e-5}
     exec(compile(_code_after("## 8. Held-out evaluation"), "<section 8>", "exec"), ns)
     return ns
 
@@ -379,7 +385,7 @@ def test_no_learner_cell_asserts_a_result():
 
 def test_expected_output_prose_matches_the_recorded_run():
     markdown = _markdown()
-    assert "Eighty lines" not in markdown and "One hundred and forty lines" in markdown
+    assert "Eighty lines" not in markdown and "Two hundred fresh-test lines" in markdown
     assert "**Run-to-run spread.**" in markdown
     assert "0.657 → 0.788 (epoch 6)" in markdown and "the validation CER **rose**" in markdown
     assert "while the loss drops from about 3.99 to 0.05" not in markdown

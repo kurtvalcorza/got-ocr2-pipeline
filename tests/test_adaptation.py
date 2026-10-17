@@ -140,7 +140,10 @@ def test_digests_and_split_disjointness():
 
 
 def test_pins_and_split_sizes():
-    assert sorted(sm.ROW_GROUP_PINS) == list(range(sm.CORPUS_ROW_GROUPS)) == list(range(8))
+    # Row groups 0-7 are the sample; 8-9 the fresh test pinned by the row 30 review (GOT2-M1).
+    assert sm.SAMPLE_ROW_GROUPS == tuple(range(sm.CORPUS_ROW_GROUPS)) == tuple(range(8))
+    assert sm.FRESH_TEST_ROW_GROUPS == (8, 9) and sorted(sm.ROW_GROUP_PINS) == list(range(10))
+    assert len(sm.FRESH_TEST_IDS) == sm.FRESH_TEST_SIZE == 200 and len(sm.FRESH_TEST_DIGEST) == 64
     assert all(len(digest) == 64 and total > 4_500_000 for digest, total in sm.ROW_GROUP_PINS.values())
     assert sum(SAMPLE_SPLIT.values()) == 100 * sm.CORPUS_ROW_GROUPS == 800
     assert sm.CORPUS_URL.startswith(f"https://huggingface.co/datasets/{sm.CORPUS_REPO}/resolve/{sm.CORPUS_REVISION}/") and len(sm.CORPUS_REVISION) == 40
@@ -194,7 +197,7 @@ def test_read_corpus_builds_records_from_verified_rows():
 
 def test_default_draw_matches_the_pinned_digest_when_the_row_groups_are_cached():
     cached = sm.DEFAULT_CACHE_DIR
-    if not all((cached / f"test-rg{g}.parquet").is_file() for g in sm.ROW_GROUP_PINS):
+    if not all((cached / f"test-rg{g}.parquet").is_file() for g in sm.SAMPLE_ROW_GROUPS):
         pytest.skip("Belfort row groups not cached")
     splits = build_sample_dataset(read_corpus(fetch_corpus(cache_dir=cached)))
     assert {k: len(v) for k, v in splits.items()} == SAMPLE_SPLIT

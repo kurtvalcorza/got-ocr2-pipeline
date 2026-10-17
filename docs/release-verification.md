@@ -183,9 +183,23 @@ not general estimates.
   - `docs/execution-evidence/2026-10-04/got_ocr2_colab_0a6e9df_colab-cli-t4_exec.log` — SHA-256 `1ed296b92ffd40271b4c3fa7a5c770b865b0e4d87afafa94b6dd5b75da377c1d`
 - **Not exercised.** BYOD (upload or `BYOD_PATH`), the change-one-thing activity (`LEARNING_RATE = 1e-4`), `PAGE_MODE = 'format'`, and any browser-only interaction. Status stays **Candidate**.
 
+## Row 30 review fixes — 2026-10-17 (GOT2-M1/M2, GOT2-m1..m8)
+
+The notebook was regenerated for the row 30 tutorial review. Its new blob has **no hosted run yet**; the rows below are pending and are filled from the executed notebooks, not from expectations.
+
+- **Pre-registered grid (GOT2-M1).** `docs/recipe-grid-preregistration.md`, committed before any run: G1 5e-5 (default), G2 1e-4, G3 2.5e-5; 600 training lines, 6 epochs, batch 8, seeds 42/0, last 4 layers; best epoch by lowest validation CER; G2/G3 replace G1 only if better by more than 0.05; the frozen model is kept unless beaten by more than 0.05. `RUN_RECIPE_GRID` is off by default; the grid runs once from branch `fix/got-ocr2-tutorial-review-2026-10-17-gridrun` (the PR head plus one generated commit that sets only `RUN_RECIPE_GRID = True`).
+- **Fresh test (GOT2-M1).** Row groups 8–9 of the same shard, 200 lines `belfort-test-800`..`-999`, `FRESH_TEST_DIGEST` `59e018c4…d245`; 0 shared ids, row groups or images with the sample's splits (measured 2026-10-17); scored once for the chosen config. The old 140-line test split is reported once as the exposed development test.
+
+| Run | Commit / notebook blob | Executor | Result |
+|---|---|---|---|
+| Default path (G1 only) | pending | Colab CLI, fresh T4 | pending |
+| One-off recipe grid (`RUN_RECIPE_GRID = True`) | pending (gridrun branch) | Colab CLI, fresh T4 | pending: validation CER table (G1–G3 × epochs 0–6), chosen config |
+
+If the grid's rules choose G2 or G3, the default `LEARNING_RATE` changes to that config in a later commit, which names the grid run, and the default path is run again.
+
 ## Current status
 
-**Candidate.** The notebook was regenerated for review findings GOT-M1..M5 and GOT-m1..m4 (Notebook Review Framework v1, review PR #9). Its blob `cbe04372` (commit `0a6e9df`) completed one hosted pass with no restart and 0 errors on 2026-10-04 (Colab CLI 0.7.4 sequential execution, fresh Colab Tesla T4, default path only; record above). Remaining gates before promotion: a fresh-runtime run on the second executor class (Kaggle), the BYOD path and the change-one-thing activity. The previous blob `951ad49e` (committed at `b72789c`) ran on a fresh Kaggle Tesla T4 runtime on 2026-09-20 only in **2 passes**: pass 1 stopped at the install cell's stale-module guard (`RuntimeError: Core dependencies changed while older modules were loaded: cuda-bindings ...; numpy ...`), the executor restarted the interpreter, and pass 2 completed 11/11 code cells (1543.4 s). That is not a one-pass `Run all` (NOTEBOOK_SPEC §5, RUN1/RUN10), so it was never Release-grade evidence (review GOT-M1). Its model-stage numbers are still the reference the notebook's worked answers quote. The pre-flight rows above are history. The status stays **Candidate** until the remaining gates are recorded here.
+**Candidate.** A new blob from the row 30 review fixes (section above) is pending its hosted runs. Before that, the notebook was regenerated for review findings GOT-M1..M5 and GOT-m1..m4 (Notebook Review Framework v1, review PR #9). Its blob `cbe04372` (commit `0a6e9df`) completed one hosted pass with no restart and 0 errors on 2026-10-04 (Colab CLI 0.7.4 sequential execution, fresh Colab Tesla T4, default path only; record above). Remaining gates before promotion: a fresh-runtime run on the second executor class (Kaggle), the BYOD path and the change-one-thing activity. The previous blob `951ad49e` (committed at `b72789c`) ran on a fresh Kaggle Tesla T4 runtime on 2026-09-20 only in **2 passes**: pass 1 stopped at the install cell's stale-module guard (`RuntimeError: Core dependencies changed while older modules were loaded: cuda-bindings ...; numpy ...`), the executor restarted the interpreter, and pass 2 completed 11/11 code cells (1543.4 s). That is not a one-pass `Run all` (NOTEBOOK_SPEC §5, RUN1/RUN10), so it was never Release-grade evidence (review GOT-M1). Its model-stage numbers are still the reference the notebook's worked answers quote. The pre-flight rows above are history. The status stays **Candidate** until the remaining gates are recorded here.
 
 Facts a reviewer should weigh: the sample is nineteenth-century French cursive, far outside the checkpoint's printed
 training distribution, which is why the frozen model scores above the empty baseline's CER 1.0 (it generates
