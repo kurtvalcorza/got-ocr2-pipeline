@@ -1,0 +1,107 @@
+[colab] Parsing notebook '/home/kurt/acct2/colab-runs/got-ocr2-pipeline-d165723-4ab24f/got_ocr2_colab_d165723_colab-cli-t4.ipynb'...
+[colab] Executing cell 1/13 - Infrastructure: install the locked runtime into an isolated environment...
+{'isolated_environment': '/content/dimer_isolated_env', 'isolated_python': '3.12.12', 'kernel_python': '3.13.15', 'locked_packages': 48, 'setup_seconds': 51}
+[colab] Executing cell 2/13 - Infrastructure: route the remaining cells to the isolated environment...
+Every later code cell now runs in /content/dimer_isolated_env/bin/python (pid 1138).
+[colab] Executing cell 3/13 - Infrastructure: record the runtime...
+{'notebook_source': {'repository': 'got-ocr2-pipeline', 'repository_revision': '0bb93d01e00aa65829b4e0e2cf4fde31e7e25c19', 'embedded_module': 'src/got_ocr2_pipeline/pipeline.py', 'embedded_modules': ['src/got_ocr2_pipeline/pipeline.py', 'src/got_ocr2_pipeline/metrics.py', 'src/got_ocr2_pipeline/samples.py'], 'module_sha256': '563315e214390bf71a1a53269b6efe324c4fee868a8487f084411b65821d9537', 'generator': 'build_notebook.py/2.2', 'notebook_spec': '2.5'}, 'python': '3.12.12', 'torch': '2.14.0+cu130', 'transformers': '4.57.6', 'cuda': True}
+[colab] Executing cell 4/13 - Infrastructure: carried module `src/got_ocr2_pipeline/pipeline.py` (you may run it without reading it)...
+[colab] Executing cell 5/13 - Infrastructure: carried module `src/got_ocr2_pipeline/metrics.py` (you may run it without reading it)...
+[colab] Executing cell 6/13 - Infrastructure: carried module `src/got_ocr2_pipeline/samples.py` (you may run it without reading it)...
+[colab] Executing cell 7/13 - Infrastructure: pin, stage and verify the model (you may run it without reading it)...
+{'model_id': 'stepfun-ai/GOT-OCR-2.0-hf', 'revision': 'd3017ef2c2c1395888c8d635c5e0508bcb0ac78d', 'license': 'apache-2.0', 'files': 8, 'total_bytes': 1139869676}
+{'weights_dir': '/content/weights/got-ocr-2.0-hf', 'fetched': ['README.md', 'config.json', 'generation_config.json', 'model.safetensors', 'preprocessor_config.json', 'special_tokens_map.json', 'tokenizer.json', 'tokenizer_config.json']}
+{'verified_files': 8, 'revision': 'd3017ef2c2c1395888c8d635c5e0508bcb0ac78d'}
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+{'device': 'cuda:0', 'source': 'local-snapshot'}
+[colab] Executing cell 8/13 - got_ocr2-17...
+{'fresh_test': {'n': 200, 'row_groups': [8, 9], 'digest': '59e018c45e80fbb38f425e120fd31de0d84ca01c1df87e3041eec59f35c3d245', 'train': {'shared_ids': 0, 'shared_row_groups': 0, 'shared_images': 0, 'transcripts_also_in_train': 8}, 'validation': {'shared_ids': 0, 'shared_row_groups': 0, 'shared_images': 0, 'transcripts_also_in_validation': 0}, 'test': {'shared_ids': 0, 'shared_row_groups': 0, 'shared_images': 0, 'transcripts_also_in_test': 0}, 'unit': 'disjoint by line image, id and source row group; no page or writer field, so not page- or writer-disjoint (same-collection estimate)'}}
+{'data_source': 'Belfort-line (test split), first eight parquet row groups + fresh test row groups 8-9 @ c4a74bbd39f2 (MIT (Teklia; Belfort municipal council minutes, Zenodo record 8041668; Tarride et al. 2023, https://doi.org/10.1145/3604951.3605517))', 'raw_rows': {'row_groups': 10, 'lines': 1000, 'bytes': 52088301, 'seconds': 8.0}, 'splits': {'train': 600, 'validation': 60, 'test': 140}, 'test_set': 'fresh test (row groups 8-9, 200 lines; scored only under the pre-registered settings)', 'split_unit': 'line image (no page or writer field)'}
+{'train': {'n': 600, 'chars': {'min': 1, 'max': 120, 'total': 24494}, 'words': 4150, 'width': {'min': 145, 'max': 8956}, 'height': {'min': 128, 'max': 128}, 'digest': '64186dce18ca12d3...'}}
+{'validation': {'n': 60, 'chars': {'min': 3, 'max': 98, 'total': 2454}, 'words': 412, 'width': {'min': 306, 'max': 7543}, 'height': {'min': 128, 'max': 128}, 'digest': '5768e17faca8ca13...'}}
+{'test': {'n': 140, 'chars': {'min': 2, 'max': 105, 'total': 6169}, 'words': 1035, 'width': {'min': 197, 'max': 7872}, 'height': {'min': 128, 'max': 128}, 'digest': '0e815da406cccff9...'}}
+{'fresh_test': {'n': 200, 'chars': {'min': 1, 'max': 103, 'total': 7345}, 'words': 1225, 'width': {'min': 195, 'max': 7332}, 'height': {'min': 128, 'max': 128}, 'digest': '59e018c45e80fbb3...'}}
+{'transcripts_also_in_train': {'validation': 2, 'test': 8, 'development_test': 5}, 'case_and_punctuation_folded': {'validation': 3, 'test': 12}, 'validation_examples': ["après en avoir délibéré, à l'unanimité:", 'Le Conseil Municipal']}
+{'example': {'id': 'belfort-test-732', 'image': [3773, 128], 'text': 'de subvention. Rapp. M. Birckel.'}}
+{'probe': 'duplicate id', 'rejected': "duplicate id 'same'"}
+{'probe': 'empty transcript', 'rejected': 'records[0]: text has 0 characters after whitespace normalisation; 1..512 are required'}
+{'probe': 'image below the side floor', 'rejected': 'records[0]: image side 8 px < MIN_IMAGE_SIDE 16'}
+{'probe': 'too small', 'rejected': '3 records; 8..5000 are required'}
+[colab] Executing cell 9/13 - got_ocr2-19...
+{'ceilings': {'MIN_IMAGE_SIDE': 16, 'MAX_IMAGE_SIDE': 16384, 'MAX_IMAGE_PIXELS': 16777216, 'MAX_NEW_TOKENS': 4096, 'DEFAULT_MAX_NEW_TOKENS': 1024, 'DEFAULT_LINE_MAX_NEW_TOKENS': 128, 'MODES': ['plain', 'format'], 'DECODING': 'greedy', 'STOP_STRING': '<|im_end|>', 'MIN_RECORDS': 8, 'MAX_RECORDS': 5000, 'MAX_TEXT_CHARS': 512, 'device': 'cuda:0', 'dtype': 'float32'}}
+{'page': 'synthetic_notice_1000x520.png', 'mode': 'plain', 'sha256': '425ae39628ef8a78...', 'manifest_verdict': 'accepted', 'findings': 1}
+{'frozen': {'mode': 'plain', 'seconds': 10.06, 'new_tokens': 154, 'checks': {'text_is_str': True, 'stop_string_removed': True, 'not_truncated': True, 'identity_reported': True}, 'metrics': {'character_error_rate': 0.0, 'word_error_rate': 0.0}, 'verdict': 'sample-sanity'}}
+NOTICE OF ANNUAL GENERAL MEETING
+The annual general meeting of Northwind Traders Ltd. will be held 
+on Thursday 23 April 2026 at 10:00 in the Harbour Room, Port
+[colab] Executing cell 10/13 - got_ocr2-21...
+{'shown_on': 'exposed development test (sample test split; shown, not the evaluation)', 'n': 140}
+{'empty_baseline': {'cer': 1.0, 'wer': 1.0, 'cer_macro': 1.0, 'exact_match': 0.0}, 'n': 140, 'note': 'empty string for every line'}
+{'constant_baseline': {'cer': 0.944, 'wer': 0.999, 'cer_macro': 0.952, 'exact_match': 0.0}, 'note': "constant training transcript 'idem'"}
+{'frozen_model': {'cer': 1.345, 'wer': 1.78, 'cer_macro': 1.299, 'exact_match': 0.014}, 'shown_on': 'exposed development test (sample test split; shown, not the evaluation)', 'n': 140, 'ref_chars': 6169, 'hyp_chars': 9651, 'char_edits': 8297, 'truncated': 29, 'verdict': 'measured', 'adapted': False, 'seconds': 157.5}
+{'definitions': {'cer': 'character error rate, micro: total character edits (insertions + deletions + substitutions) over total reference characters; 0 is perfect, values above 1 mean over-generation', 'wer': 'word error rate, micro: total word edits over total reference words after lower-casing and whitespace tokenisation; punctuation kept', 'cer_macro': 'mean of the per-line character error rates (each line weighted equally regardless of length)', 'wer_macro': 'mean of the per-line word error rates', 'exact_match': 'fraction of lines whose hypothesis equals the reference after whitespace normalisation'}}
+{'id': 'belfort-test-761', 'reference': "régulariser l'achat", 'frozen': 'in400Ω'}
+{'id': 'belfort-test-763', 'reference': 'Renvoi à la Commission des travaux de diverses questions', 'frozen': '\\ \\ L e m o r a t  a  l e a  C e c o m m a n a t i o n g  d e s  P r e c i n u s a r e  d e c i n u t i o n a  d i n i t'}
+{'id': 'belfort-test-642', 'reference': 'divers instruments de musique', 'frozen': 'differentiate  the  two  two  two  two  two  two  two  two  two  two  two  two  two  two  two  two  two  two  two  two  '}
+{'id': 'belfort-test-156', 'reference': "Le Maire demande au Conseil s'il y a lieu d'accorder à quelques uns des", 'frozen': '\\ 1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'}
+[colab] Executing cell 11/13 - got_ocr2-23...
+{'run': 'selection-only grid run: the fresh test is NOT scored; it is scored on the default path with the chosen config', 'fixed_settings_differ': []}
+{'grid_config': 'G1', 'learning_rate': 5e-05, 'epochs': 6, 'batch_size': 8, 'min_gain': 0.05}
+{'epoch': 0, 'train_loss': None, 'val_cer': 1.554, 'val_wer': 1.932, 'val_cer_macro': 1.642, 'val_exact_match': 0.017, 'note': 'frozen model'}
+{'epoch': 1, 'train_loss': 3.9927, 'val_cer': 0.875, 'val_wer': 1.07, 'val_cer_macro': 0.795, 'val_exact_match': 0.0}
+{'epoch': 2, 'train_loss': 2.4459, 'val_cer': 0.886, 'val_wer': 0.976, 'val_cer_macro': 0.994, 'val_exact_match': 0.017}
+{'epoch': 3, 'train_loss': 1.3323, 'val_cer': 0.707, 'val_wer': 0.859, 'val_cer_macro': 0.734, 'val_exact_match': 0.017}
+{'epoch': 4, 'train_loss': 0.5001, 'val_cer': 0.634, 'val_wer': 0.896, 'val_cer_macro': 0.637, 'val_exact_match': 0.017}
+{'epoch': 5, 'train_loss': 0.1294, 'val_cer': 0.657, 'val_wer': 0.874, 'val_cer_macro': 0.688, 'val_exact_match': 0.033}
+{'epoch': 6, 'train_loss': 0.0522, 'val_cer': 0.788, 'val_wer': 1.231, 'val_cer_macro': 0.784, 'val_exact_match': 0.017}
+{'reloaded': 'the pretrained model, from the verified snapshot', 'reason': 'an earlier pass had adapted the model in memory'}
+{'grid_config': 'G2', 'learning_rate': 0.0001, 'epochs': 6, 'batch_size': 8, 'min_gain': 0.05}
+{'epoch': 0, 'train_loss': None, 'val_cer': 1.554, 'val_wer': 1.932, 'val_cer_macro': 1.642, 'val_exact_match': 0.017, 'note': 'frozen model'}
+{'epoch': 1, 'train_loss': 3.8732, 'val_cer': 1.011, 'val_wer': 1.425, 'val_cer_macro': 0.86, 'val_exact_match': 0.017}
+{'epoch': 2, 'train_loss': 1.8036, 'val_cer': 0.828, 'val_wer': 0.891, 'val_cer_macro': 0.878, 'val_exact_match': 0.017}
+{'epoch': 3, 'train_loss': 0.5674, 'val_cer': 0.75, 'val_wer': 0.959, 'val_cer_macro': 0.701, 'val_exact_match': 0.0}
+{'epoch': 4, 'train_loss': 0.1551, 'val_cer': 0.687, 'val_wer': 0.857, 'val_cer_macro': 0.784, 'val_exact_match': 0.033}
+{'epoch': 5, 'train_loss': 0.0887, 'val_cer': 0.691, 'val_wer': 0.823, 'val_cer_macro': 0.67, 'val_exact_match': 0.033}
+{'epoch': 6, 'train_loss': 0.0799, 'val_cer': 0.643, 'val_wer': 0.871, 'val_cer_macro': 0.646, 'val_exact_match': 0.033}
+{'reloaded': 'the pretrained model, from the verified snapshot', 'reason': 'an earlier pass had adapted the model in memory'}
+{'grid_config': 'G3', 'learning_rate': 2.5e-05, 'epochs': 6, 'batch_size': 8, 'min_gain': 0.05}
+{'epoch': 0, 'train_loss': None, 'val_cer': 1.554, 'val_wer': 1.932, 'val_cer_macro': 1.642, 'val_exact_match': 0.017, 'note': 'frozen model'}
+{'epoch': 1, 'train_loss': 4.1798, 'val_cer': 1.2, 'val_wer': 1.388, 'val_cer_macro': 1.113, 'val_exact_match': 0.0}
+{'epoch': 2, 'train_loss': 3.0478, 'val_cer': 1.097, 'val_wer': 1.369, 'val_cer_macro': 0.921, 'val_exact_match': 0.0}
+{'epoch': 3, 'train_loss': 2.3283, 'val_cer': 0.671, 'val_wer': 0.842, 'val_cer_macro': 0.734, 'val_exact_match': 0.0}
+{'epoch': 4, 'train_loss': 1.6203, 'val_cer': 0.653, 'val_wer': 0.867, 'val_cer_macro': 0.647, 'val_exact_match': 0.017}
+{'epoch': 5, 'train_loss': 1.0072, 'val_cer': 0.764, 'val_wer': 0.99, 'val_cer_macro': 0.734, 'val_exact_match': 0.017}
+{'epoch': 6, 'train_loss': 0.5098, 'val_cer': 0.727, 'val_wer': 0.905, 'val_cer_macro': 0.814, 'val_exact_match': 0.017}
+config       lr    ep0    ep1    ep2    ep3    ep4    ep5    ep6 best best_cer
+    G1    5e-05  1.554  0.875  0.886  0.707  0.634  0.657  0.788    4    0.634
+    G2   0.0001  1.554  1.011  0.828  0.750  0.687  0.691  0.643    6    0.643
+    G3  2.5e-05  1.554  1.200  1.097  0.671  0.653  0.764  0.727    4    0.653
+{'chosen': 'G1', 'reason': 'no config beats G1 (0.634) on validation CER by more than 0.05; G1 is kept', 'selection_split': 'validation (the test lines play no part)'}
+{'reloaded': 'the pretrained model, from the verified snapshot', 'reason': 'an earlier pass had adapted the model in memory'}
+{'paired_bootstrap_best_val_cer': {'G2-G1': {'measure': 'cer', 'estimate': 0.009, 'low': -0.0392, 'high': 0.0583, 'level': 0.95, 'n_lines': 60, 'n_resamples': 2000, 'paired': True}, 'G3-G1': {'measure': 'cer', 'estimate': 0.0196, 'low': -0.036, 'high': 0.0719, 'level': 0.95, 'n_lines': 60, 'n_resamples': 2000, 'paired': True}}, 'preregistered_fixed_settings': True}
+{'config': 'G1', 'trainable_parameters': 51401728, 'total_parameters': 560528640, 'first_trainable_layer': 20, 'learning_rate': 5e-05, 'seed': 0, 'best_epoch': 4, 'selection': 'lowest validation CER', 'selection_split': 'validation', 'attention': 'sdpa', 'loss': 'causal language-model cross-entropy over the transcript tokens and the stop token; prompt and image tokens masked; computed on the cached frozen-prefix hidden states', 'cache_seconds': 342.433, 'seconds': 2665.1}
+[colab] Executing cell 12/13 - got_ocr2-25...
+{'scored_on': 'exposed development test (sample test split; shown, not the evaluation)', 'config': 'G1', 'test_look': 'not scored (exploratory)', 'settings_differ': []}
+{'cer': {'empty': 1.0, 'constant': 0.944, 'frozen': 1.345, 'adapted': 0.759}}
+{'wer': {'empty': 1.0, 'constant': 0.999, 'frozen': 1.78, 'adapted': 1.017}}
+{'cer_macro': {'empty': 1.0, 'constant': 0.952, 'frozen': 1.299, 'adapted': 0.721}}
+{'exact_match': {'empty': 0.0, 'constant': 0.0, 'frozen': 0.014, 'adapted': 0.021}}
+{'delta_vs_frozen': {'cer': -0.586, 'wer': -0.762, 'cer_macro': -0.579, 'exact_match': 0.007}}
+{'hypothesis_length': {'ref_chars': 6169, 'frozen_hyp_chars': 9651, 'adapted_hyp_chars': 6618, 'frozen_char_edits': 8297, 'adapted_char_edits': 4681, 'frozen_truncated': 29, 'adapted_truncated': 3}}
+{'bootstrap_95': {'cer': {'adapted': [0.683, 0.851], 'adapted_minus_frozen': [-0.793, -0.388]}, 'wer': {'adapted': [0.93, 1.122], 'adapted_minus_frozen': [-1.127, -0.438]}}}
+{'transcript_breakdown': {'scored_on': 'exposed development test (sample test split; shown, not the evaluation)', 'all_test_lines': 140, 'transcript_also_in_train': 5, 'transcript_unseen': 135, 'match': 'exact after whitespace collapse (lower bound)', 'frozen_all': {'cer': 1.345, 'wer': 1.78, 'n': 140}, 'frozen_unseen_transcripts': {'cer': 1.349, 'wer': 1.786, 'n': 135}, 'frozen_seen_transcripts': {'cer': 1.048, 'wer': 1.357, 'n': 5}, 'adapted_all': {'cer': 0.759, 'wer': 1.017, 'n': 140}, 'adapted_unseen_transcripts': {'cer': 0.764, 'wer': 1.024, 'n': 135}, 'adapted_seen_transcripts': {'cer': 0.381, 'wer': 0.571, 'n': 5}}}
+{'beats': {'cer': {'frozen': True, 'empty': True, 'constant': True}, 'wer': {'frozen': True, 'empty': False, 'constant': False}}, 'adapted_beats_frozen': True, 'adapted_cer_beats_both_baselines': True, 'adapted_wer_beats_both_baselines': False, 'best_epoch': 4}
+Reading: CER 0.759 is below both baselines (empty 1.000, constant 0.944, frozen 1.345). WER 1.017 is NOT below either baseline (empty 1.000, constant 0.999, frozen 1.780): on this measure the adapted model does no better than predicting nothing. So the answer is split: yes on characters, no on whole words - most words still contain at least one error.
+run   data config epochs       lr best  frozen adapted     wer  test_look
+  1 sample     G1      6    5e-05    4   1.345   0.759   1.017  not scored (exploratory) (exposed development test)
+{'report': 'outputs/got_ocr2_evaluation_report_exploratory_1.json', 'test_look': 'not scored (exploratory)'}
+[colab] Executing cell 13/13 - got_ocr2-27...
+{'examples': ['belfort-test-112.png', 'belfort-test-156.png', 'belfort-test-48.png', 'belfort-test-642.png', 'belfort-test-761.png', 'belfort-test-763.png'], 'rows': ['reference', 'frozen transcript', 'adapted transcript']}
+{'adapted': {'mode': 'plain', 'seconds': 5.49, 'new_tokens': 154, 'checks': {'text_is_str': True, 'stop_string_removed': True, 'not_truncated': True, 'identity_reported': True}, 'metrics': {'character_error_rate': 0.0, 'word_error_rate': 0.0}, 'verdict': 'sample-sanity'}}
+NOTICE OF ANNUAL GENERAL MEETING
+The annual general meeting of Northwind Traders Ltd. will be held 
+on Thursday 23 April 2026 at 10:00 in the Harbour Room, Port
+{'artifact': 'outputs/got_ocr2_adapter', 'format': 'org.valcorza.got-ocr-2.0-hf.adapter.v1', 'tensors': 49, 'bytes': 205613096, 'sha256': 'a30f6d3e5594e525...', 'best_epoch': 4}
+{'reload_parity': {'identical_lines': 8, 'of': 8}, 'reloaded_best_epoch': 4}
+['got_ocr2_adapter', 'got_ocr2_evaluation_report_exploratory_1.json', 'got_ocr2_example_line.png', 'got_ocr2_examples', 'got_ocr2_input_manifest.json', 'got_ocr2_page_adapted.txt', 'got_ocr2_page_frozen.txt', 'got_ocr2_recipe_grid.json', 'got_ocr2_result_exploratory_1.json', 'got_ocr2_run_history.json', 'got_ocr2_train.csv']
+[colab] Saving notebook with outputs to '/home/kurt/acct2/colab-runs/got-ocr2-pipeline-d165723-4ab24f/got_ocr2_colab_d165723_colab-cli-t4_output.ipynb'...

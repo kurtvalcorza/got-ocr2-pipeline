@@ -134,4 +134,17 @@ the peer review of PR #12 (M1–M3, m1, m3, m6, S3).
 
 ## Results
 
-Pending: no grid run has been recorded yet.
+Recorded 2026-10-17 (details and evidence files in `docs/release-verification.md`). The grid and the rules above were applied unchanged.
+
+**Grid run (selection only)** — gridrun commit `d165723`, blob `9ec5eb71`, Colab CLI 0.7.4 on a fresh Tesla T4; fixed settings equal to the pre-registration (`fixed_settings_differ: []`); the fresh test was not scored. Validation CER (60 lines):
+
+| Config | LR | ep 0 | ep 1 | ep 2 | ep 3 | ep 4 | ep 5 | ep 6 | best epoch | best val CER |
+|---|---|---|---|---|---|---|---|---|---|---|
+| G1 | 5e-5 | 1.554 | 0.875 | 0.886 | 0.707 | **0.634** | 0.657 | 0.788 | 4 | 0.634 |
+| G2 | 1e-4 | 1.554 | 1.011 | 0.828 | 0.750 | 0.687 | 0.691 | 0.643 | 6 | 0.643 |
+| G3 | 2.5e-5 | 1.554 | 1.200 | 1.097 | 0.671 | 0.653 | 0.764 | 0.727 | 4 | 0.653 |
+
+G1 is kept: neither G2 (0.643) nor G3 (0.653) beats G1 (0.634) by more than 0.05. Paired bootstrap (informative): G2 − G1 +0.009 (95 % −0.039 to 0.058), G3 − G1 +0.020 (−0.036 to 0.072). The frozen-model rule was not triggered. The default stays G1 (`LEARNING_RATE = 5e-5`).
+
+**Pre-registered evaluation** — PR head `f564d9e`, blob `59bb22a6`, default path, Colab CLI 0.7.4 on a fresh Tesla T4, `test_look: pre-registered evaluation`, no setting differing. Fresh test (200 lines): CER frozen 1.157 → adapted 0.902 (95 % 0.733–1.121; difference −0.255, −0.509 to −0.002), WER 1.604 → 1.308 (1.043–1.646; difference −0.296, −0.761 to 0.135). The 192 lines whose transcript does not occur in training: adapted CER 0.910 / WER 1.317; the 8 that do: 0.444 / 0.762. Exposed development test (history): adapted 0.759 / 1.017. Reproductions: none yet.
+

@@ -284,16 +284,20 @@ def test_any_changed_setting_never_scores_the_fresh_test(tmp_path, monkeypatch, 
     assert not (tmp_path / "outputs" / "got_ocr2_evaluation_report.json").exists()
 
 
-def test_identical_rerun_is_labelled_a_reproduction_and_keeps_the_first_result(tmp_path, monkeypatch):
-    ns, calls = _harness(tmp_path, monkeypatch)
-    assert ns["test_look"] == "pre-registered evaluation" and ns["scored_on"].startswith("fresh test")
+@pytest.mark.parametrize("recorded", [None, got.RECORDED_EVALUATION])
+def test_identical_rerun_is_labelled_a_reproduction_and_keeps_the_first_result(tmp_path, monkeypatch, recorded):
+    # Rule item 8: without a recorded evaluation, the first pre-registered pass is "pre-registered evaluation (this
+    # runtime)"; once RECORDED_EVALUATION names the evaluation of record, every later identical pass is a reproduction.
+    ns, calls = _harness(tmp_path, monkeypatch, data={"RECORDED_EVALUATION": recorded})
+    first_look = "pre-registered evaluation (this runtime)" if recorded is None else "reproduction"
+    assert ns["test_look"] == first_look and ns["scored_on"].startswith("fresh test")
     first = (tmp_path / "outputs" / "got_ocr2_evaluation_report.json").read_text(encoding="utf-8")
     ns, calls = _harness(tmp_path, monkeypatch, ns=ns, calls=calls)  # same settings, same runtime
     assert ns["test_look"] == "reproduction"
     assert (tmp_path / "outputs" / "got_ocr2_evaluation_report.json").read_text(encoding="utf-8") == first
     assert (tmp_path / "outputs" / "got_ocr2_evaluation_report_reproduction_1.json").is_file()
     history = json.loads((tmp_path / "outputs" / "got_ocr2_run_history.json").read_text(encoding="utf-8"))
-    assert [h["test_look"] for h in history] == ["pre-registered evaluation", "reproduction"]
+    assert [h["test_look"] for h in history] == [first_look, "reproduction"]
     report = json.loads(first)
     assert report["preregistered"] is True and report["settings_differ"] == [] and "bootstrap_95" in report
     assert {"adapted_unseen_transcripts", "adapted_seen_transcripts"} <= set(report["transcript_breakdown"])
@@ -392,7 +396,18 @@ def test_selection_is_on_validation_and_the_fresh_test_is_scored_only_under_prer
         assert stale not in markdown, stale
     assert re.search(r"(chosen|selected) (among|from) .{0,80}validation", markdown.lower())
     assert "with the fresh test scored after the choice and only under the pre-registered settings" in markdown and "**exposed development test**" in markdown
-    assert "pending" in markdown and "fix/got-ocr2-tutorial-review-2026-10-17-gridrun" in markdown
+    assert "fix/got-ocr2-tutorial-review-2026-10-17-gridrun" in markdown
+    # REL13 requote (2026-10-17): the grid table and the fresh-test numbers are the recorded runs, not "pending".
+    assert "pending" not in markdown.replace("Owner decisions pending", "")
+    assert "G1 0.634" in markdown and "G2 0.643" in markdown and "G3 0.653" in markdown and "`9ec5eb71`" in markdown
+    assert "1.157 → **0.902**" in markdown and "-0.509 to -0.002" in markdown and "-0.761 to 0.135" in markdown
+    assert "`59bb22a6`" in markdown and "1213.2 s" in markdown and "966 s in the recorded run" not in markdown
+
+
+def test_recorded_evaluation_names_the_hosted_run_of_record():
+    record = got.RECORDED_EVALUATION
+    assert record["notebook_blob"].startswith("59bb22a6") and record["commit"].startswith("f564d9e")
+    assert (ROOT / record["evidence"]).is_file()
 
 
 def test_quotes_name_their_blob_and_overclaims_are_gone():
