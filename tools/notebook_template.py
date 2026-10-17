@@ -593,7 +593,7 @@ TEMPLATE = {
                 "EPOCHS = 6  # @param {{type:\"integer\"}}\n"
                 "LEARNING_RATE = 5e-5  # @param {{type:\"number\"}}\n"
                 "BATCH_SIZE = 8  # @param {{type:\"integer\"}}\n"
-                "RUN_RECIPE_GRID = False  # @param {{type:\"boolean\"}}\n\n\n"
+                "RUN_RECIPE_GRID = True  # @param {{type:\"boolean\"}}\n\n\n"
                 "def report(entry):\n"
                 "    row = {{'epoch': entry['epoch'], 'train_loss': None if entry['train_loss'] is None else round(entry['train_loss'], 4)}}\n"
                 "    if entry.get('val'):\n"
