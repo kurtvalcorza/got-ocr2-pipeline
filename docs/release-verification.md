@@ -188,14 +188,20 @@ not general estimates.
 The notebook was regenerated for the row 30 tutorial review. Its new blob has **no hosted run yet**; the rows below are pending and are filled from the executed notebooks, not from expectations.
 
 - **Pre-registered grid (GOT2-M1).** `docs/recipe-grid-preregistration.md`, committed before any run: G1 5e-5 (default), G2 1e-4, G3 2.5e-5; 600 training lines, 6 epochs, batch 8, seeds 42/0, last 4 layers; best epoch by lowest validation CER; G2/G3 replace G1 only if better by more than 0.05; the frozen model is kept unless beaten by more than 0.05. `RUN_RECIPE_GRID` is off by default; the grid runs once from branch `fix/got-ocr2-tutorial-review-2026-10-17-gridrun` (the PR head plus one generated commit that sets only `RUN_RECIPE_GRID = True`).
-- **Fresh test (GOT2-M1).** Row groups 8–9 of the same shard, 200 lines `belfort-test-800`..`-999`, `FRESH_TEST_DIGEST` `59e018c4…d245`; 0 shared ids, row groups or images with the sample's splits (measured 2026-10-17); scored once for the chosen config. The old 140-line test split is reported once as the exposed development test.
+- **Fresh test (GOT2-M1).** Row groups 8–9 of the same shard, 200 lines `belfort-test-800`..`-999`, `FRESH_TEST_DIGEST` `59e018c4…d245`; 0 shared ids, row groups or images with the sample's splits (measured 2026-10-17); scored only under the pre-registered settings (score-once rule; pre-registration amendment 1). The old 140-line test split is reported once as the exposed development test.
 
-| Run | Commit / notebook blob | Executor | Result |
-|---|---|---|---|
-| Default path (G1 only) | pending | Colab CLI, fresh T4 | pending |
-| One-off recipe grid (`RUN_RECIPE_GRID = True`) | pending (gridrun branch) | Colab CLI, fresh T4 | pending: validation CER table (G1–G3 × epochs 0–6), chosen config |
+**Run plan (score-once rule, Kurt 2026-10-17; pre-registration amendment 1), in this order:**
 
-If the grid's rules choose G2 or G3, the default `LEARNING_RATE` changes to that config in a later commit, which names the grid run, and the default path is run again.
+1. **Grid run, selection only:** branch `fix/got-ocr2-tutorial-review-2026-10-17-gridrun` (`RUN_RECIPE_GRID = True`). It records the validation table and the chosen config and does **not** score the fresh test.
+2. If the grid chooses G2 or G3, a commit changes the default (`RECIPE_DEFAULT`, `LEARNING_RATE`) to the winner **before** step 3.
+3. **Default-path run = the evaluation:** the first recorded hosted run under the pre-registered settings (`test_look: pre-registered evaluation`). Its fresh-test row is **the** result.
+4. **Later identical runs = reproductions** of the pre-registered evaluation (`test_look: reproduction`), logged in their own column, provided nothing was changed in response to the test number. Runs with other settings are exploratory and never score the fresh test.
+
+| Step | Commit / notebook blob | Executor | `test_look` | Result |
+|---|---|---|---|---|
+| 1. Grid (selection only) | pending (gridrun branch) | Colab CLI, fresh T4 | not scored (exploratory) | pending: validation CER table (G1–G3 × epochs 0–6), chosen config, paired bootstrap |
+| 3. Default path (the evaluation) | pending | Colab CLI, fresh T4 | pre-registered evaluation | pending: fresh-test CER/WER with bootstrap intervals |
+| 4. Reproductions | — | — | reproduction | none yet |
 
 ## Current status
 

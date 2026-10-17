@@ -175,8 +175,12 @@ def _weight_digest(root: Path) -> str | None:
 
 
 def normalise_text(text: str) -> str:
-    """The transcript form every comparison uses: whitespace runs collapsed to one space, ends stripped."""
-    return " ".join(str(text).split())
+    """The transcript form every comparison uses: Unicode NFC (so a decomposed accent is one character, review m3),
+    whitespace runs collapsed to one space, ends stripped. Every Belfort transcript is already NFC (checked
+    2026-10-17), so the pinned digests are unchanged."""
+    import unicodedata
+
+    return " ".join(unicodedata.normalize("NFC", str(text)).split())
 
 
 def edit_distance(reference: Sequence[Any], hypothesis: Sequence[Any]) -> int:
@@ -452,13 +456,26 @@ def select_recipe(
         reason = f"no config's best validation CER is lower than the frozen model's by more than {margin:g}"
     else:
         better = [name for name in results if name != default and scores[default] - scores[name] > margin]
+        # An exact tie between challengers goes to the first in grid order (G2 before G3), as `min` returns it.
         chosen = min(better, key=lambda name: scores[name]) if better else default
         reason = (
             f"{chosen} validation CER {scores[chosen]:.3f} is lower than {default}'s {scores[default]:.3f} by more than {margin:g}"
             if better
             else f"no config beats {default} ({scores[default]:.3f}) on validation CER by more than {margin:g}; {default} is kept"
         )
+    from .metrics import bootstrap_interval
+
+    bootstrap = {}
+    for name in results:
+        if name == default:
+            continue
+        mine = results[name]["history"][int(results[name]["best_epoch"])]["val"].get("rows")
+        theirs = results[default]["history"][int(results[default]["best_epoch"])]["val"].get("rows")
+        if mine and theirs:
+            interval = bootstrap_interval(mine, theirs, measure="cer")
+            bootstrap[f"{name}-{default}"] = {k: round(v, 4) if isinstance(v, float) else v for k, v in interval.items()}
     return {
+        "paired_bootstrap_best_val_cer": bootstrap,  # informative only; the rule above decides (review m6)
         "configs": {name: {"lr": float(results[name].get("lr", float("nan"))), "best_epoch": int(results[name]["best_epoch"]), "best_val_cer": round(scores[name], 4)} for name in results},
         "validation_cer_by_epoch": table,
         "frozen_val_cer": round(min(frozen.values()), 4),
@@ -754,7 +771,9 @@ class GotOcr2Pipeline:
             if val_checked is None:
                 return None
             result = self.evaluate(val_checked, max_new_tokens=max_new_tokens)
-            return {"cer": result["cer"], "wer": result["wer"], "cer_macro": result["cer_macro"], "exact_match": result["exact_match"], "n": result["n"]}
+            # per-line counts kept for the grid's paired bootstrap (review m6)
+            rows = [{k: r[k] for k in ("id", "char_edits", "ref_chars", "word_edits", "ref_words")} for r in result["rows"]]
+            return {"cer": result["cer"], "wer": result["wer"], "cer_macro": result["cer_macro"], "exact_match": result["exact_match"], "n": result["n"], "rows": rows}
 
         def _encode(batch: Sequence[Mapping[str, Any]]) -> tuple[dict[str, Any], Any]:
             encoded = processor([r["image"] for r in batch], return_tensors="pt", padding=True)

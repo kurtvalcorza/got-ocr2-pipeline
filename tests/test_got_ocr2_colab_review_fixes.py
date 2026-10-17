@@ -212,7 +212,7 @@ def test_split_wording_and_breakdown():
         assert marker in markdown, marker
     assert "overlap = {'validation': transcript_overlap(train_records, val_records)" in _code_after("## 4. Belfort lines")
     section8 = _code_after("## 8. Held-out evaluation")
-    assert "rates = ocr_metrics([run['hypotheses'][i] for i in unseen], unseen_records)" in section8
+    assert "rates = ocr_metrics([run['hypotheses'][i] for i in index], [scored_records[i] for i in index])" in section8
 
 
 def test_default_split_is_unchanged():
@@ -331,9 +331,12 @@ def _section8(monkeypatch, tmp_path, adapted_reader, *, best_epoch=3) -> dict:
     ns.update({"os": __import__("os"), "Path": Path, "json": json, "pipe": adapted, "METRICS": ("cer", "wer", "cer_macro", "exact_match"), "LINE_MAX_NEW_TOKENS": 128, "USE_BYOD": True, "EPOCHS": 6, "LEARNING_RATE": 5e-5, "data_source": "BYOD (x.zip)", "dataset_manifests": {"test": {"digest": "d"}}, "disjoint": {"test": 6}, "adapt_seconds": 1.0, "test_records": test_records, "val_records": val_records})
     # Row 30 review: the names Sections 4 and 7 now define (test set label, development test, grid choice, run state).
     ns.update({"train_records": train_records, "dev_test_records": None, "test_name": "BYOD test split", "fresh_report": None, "data_label": "BYOD", "chosen_config": "G1", "recipe_grid": None, "require_valid_run": lambda section: None})
+    # Score-once rule (round 2): BYOD is exploratory, so Section 8 compares on the Section 6 set and writes *_exploratory_<n>.
+    ns.update({"preregistered": False, "setting_differences": ["data: 'BYOD'"], "run_settings": {"data": "BYOD"}, "fresh_reference": None, "NOTEBOOK_SOURCE": {"repository_revision": "test"}, "shown_records": test_records, "shown_on": "BYOD test split (your data)"})
     ns["baseline_empty"] = got.empty_baseline(test_records)
     ns["baseline_constant"] = got.constant_baseline(train_records, test_records)
-    ns["frozen_test"] = frozen.evaluate(test_records)
+    ns["frozen_test"] = ns["frozen_shown"] = frozen.evaluate(test_records)
+    ns["empty_shown"], ns["constant_shown"] = ns["baseline_empty"], ns["baseline_constant"]
     ns["overlap"] = {"validation": [], "test": transcript_overlap(train_records, test_records)}
     ns["adapt_result"] = {"best_epoch": best_epoch, "history": [], "trainable_names": [], "seed": 0, "lr": 5e-5}
     exec(compile(_code_after("## 8. Held-out evaluation"), "<section 8>", "exec"), ns)
@@ -348,7 +351,7 @@ def test_section8_answers_cer_and_wer_separately_when_they_disagree(monkeypatch,
     assert ns["beats"]["wer"]["empty"] is False
     assert ns["adapted_cer_beats_both_baselines"] is True and ns["adapted_wer_beats_both_baselines"] is False
     assert "WER 1.000 is NOT below either baseline" in out and "yes on characters, no on whole words" in out
-    report = json.loads((tmp_path / "outputs" / "got_ocr2_evaluation_report.json").read_text(encoding="utf-8"))
+    report = json.loads((tmp_path / "outputs" / "got_ocr2_evaluation_report_exploratory_1.json").read_text(encoding="utf-8"))
     assert report["adapted_cer_beats_both_baselines"] is True and report["adapted_wer_beats_both_baselines"] is False
     assert "adapted_beats_both_baselines" not in report and report["beats"]["wer"]["empty"] is False
 
@@ -357,7 +360,7 @@ def test_section8_reports_a_negative_result_and_writes_the_report(monkeypatch, t
     ns = _section8(monkeypatch, tmp_path, lambda ref: "zzzz zzzz zzzz zzzz")
     out = capsys.readouterr().out
     assert ns["adapted_beats_frozen"] is False and "did not help here" in out
-    report = json.loads((tmp_path / "outputs" / "got_ocr2_evaluation_report.json").read_text(encoding="utf-8"))
+    report = json.loads((tmp_path / "outputs" / "got_ocr2_evaluation_report_exploratory_1.json").read_text(encoding="utf-8"))
     assert report["adapted_beats_frozen"] is False and report["transcript_breakdown"]["transcript_also_in_train"] == 1
     assert report["transcript_breakdown"]["frozen_unseen_transcripts"]["n"] == 5
     assert len(ns["run_history"]) == 1 and ns["run_history"][0]["adapted_wer"] >= 1.0

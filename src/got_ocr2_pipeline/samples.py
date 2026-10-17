@@ -31,7 +31,16 @@ from typing import Any
 
 from PIL import Image
 
-from .pipeline import MODEL_ID, normalise_text, validate_image
+from .pipeline import (
+    GRAD_CLIP,
+    MODEL_ID,
+    RECIPE_DEFAULT,
+    RECIPE_GRID,
+    RECIPE_MARGIN,
+    TRAINABLE_LAYERS,
+    normalise_text,
+    validate_image,
+)
 
 CORPUS_NAME = "Belfort-line (test split), first eight parquet row groups"
 CORPUS_REPO = "Teklia/Belfort-line"
@@ -67,6 +76,39 @@ FRESH_TEST_ROW_GROUPS = (8, 9)
 FRESH_TEST_SIZE = 200
 FRESH_TEST_IDS = tuple(f"belfort-test-{i}" for i in range(800, 1000))  # read_corpus ids: row group * 100 + row index
 FRESH_TEST_DIGEST = "59e018c45e80fbb38f425e120fd31de0d84ca01c1df87e3041eec59f35c3d245"  # dataset_digest of the 200 records
+# Score-once rule (Kurt, 2026-10-17): the fresh test is scored only when EVERY setting below matches. These are the
+# items docs/recipe-grid-preregistration.md fixes, plus the selected config's learning rate (RECIPE_DEFAULT; it changes
+# only if the recorded grid run picks another config, before the evaluation run).
+PREREGISTERED_SETTINGS: dict[str, Any] = {
+    "data": "sample",
+    "split_seed": 42,
+    "train_lines": 600,
+    "validation_lines": 60,
+    "fresh_test_lines": 200,
+    "fresh_test_digest": FRESH_TEST_DIGEST,
+    "epochs": 6,
+    "batch_size": 8,
+    "line_max_new_tokens": 128,
+    "learning_rate": RECIPE_GRID[RECIPE_DEFAULT],
+    "adapt_seed": 0,
+    "trainable_layers": TRAINABLE_LAYERS,
+    "min_gain": RECIPE_MARGIN,
+    "grad_clip": GRAD_CLIP,
+}
+
+
+def preregistration_differences(settings: Mapping[str, Any], *, ignore: Sequence[str] = ()) -> list[str]:
+    """Every pre-registered setting that `settings` misses or changes, as readable strings (empty: the run is under
+    the pre-registered settings). `ignore` drops items a caller varies by design (the grid varies the learning rate)."""
+    out = []
+    for key, expected in PREREGISTERED_SETTINGS.items():
+        if key in ignore:
+            continue
+        got = settings.get(key, "<missing>")
+        same = isinstance(expected, float) and isinstance(got, int | float) and not isinstance(got, bool) and abs(float(got) - expected) <= 1e-12 * max(1.0, abs(expected))
+        if not (same or got == expected):
+            out.append(f"{key}: {got!r} (pre-registered {expected!r})")
+    return out
 DEFAULT_CACHE_DIR = Path("weights") / "belfort"
 
 SAMPLE_SEED = 42
@@ -430,12 +472,23 @@ def split_dataset(
     return {"test": unique[:n_test], "validation": unique[n_test : n_test + n_val], "train": unique[n_test + n_val :]}
 
 
-def transcript_overlap(train: Sequence[Mapping[str, Any]], other: Sequence[Mapping[str, Any]]) -> list[str]:
+def _fold(text: str) -> str:
+    """Case- and punctuation-folded transcript, for a looser repeat count (review m2)."""
+    import unicodedata
+
+    kept = "".join(c for c in normalise_text(text).casefold() if not unicodedata.category(c).startswith("P"))
+    return " ".join(kept.split())
+
+
+def transcript_overlap(train: Sequence[Mapping[str, Any]], other: Sequence[Mapping[str, Any]], *, fold: bool = False) -> list[str]:
     """Ids of the `other` records whose normalised transcript also occurs verbatim in `train` (review GOT-M3: formulaic
     lines such as "Le Conseil Municipal" repeat across pages, so an image-disjoint split can still test text it trained
     on)."""
-    seen = {normalise_text(r["text"]) for r in train}
-    return [str(r["id"]) for r in other if normalise_text(r["text"]) in seen]
+    # Exact match after whitespace collapse (and NFC) is a lower bound on repeats; `fold=True` also ignores case and
+    # punctuation, which counts more formulaic variants (review m2).
+    key = _fold if fold else normalise_text
+    seen = {key(r["text"]) for r in train}
+    return [str(r["id"]) for r in other if key(r["text"]) in seen]
 
 
 def load_byod_dataset(path: str | Path) -> list[dict[str, Any]]:
