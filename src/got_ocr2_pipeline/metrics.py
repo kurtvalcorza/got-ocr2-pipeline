@@ -46,7 +46,7 @@ def ocr_metrics(hypotheses: Sequence[str], records: Sequence[Mapping[str, Any]])
         ce = edit_distance(reference, hyp)
         we = edit_distance(_words(reference), _words(hyp))
         n_words = len(_words(reference))
-        rows.append({"id": record.get("id"), "ref_chars": len(reference), "hyp_chars": len(hyp), "char_edits": ce, "cer": ce / len(reference), "word_edits": we, "wer": we / n_words, "exact": hyp == reference})
+        rows.append({"id": record.get("id"), "ref_chars": len(reference), "hyp_chars": len(hyp), "char_edits": ce, "cer": ce / len(reference), "word_edits": we, "wer": we / n_words, "ref_words": n_words, "exact": hyp == reference})
         char_edits += ce
         word_edits += we
         ref_chars += len(reference)
@@ -69,6 +69,40 @@ def ocr_metrics(hypotheses: Sequence[str], records: Sequence[Mapping[str, Any]])
         "rows": rows,
         "definitions": dict(METRIC_DEFINITIONS),
     }
+
+
+def bootstrap_interval(
+    rows: Sequence[Mapping[str, Any]],
+    paired: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    measure: str = "cer",
+    n_resamples: int = 2000,
+    seed: int = 0,
+    level: float = 0.95,
+) -> dict[str, Any]:
+    """Line-level bootstrap interval of a micro rate (`measure` 'cer' or 'wer') from `ocr_metrics` rows, or of the
+    paired difference `rows - paired` when `paired` holds the rows of a second system on the same lines (review S1/m6).
+    Resamples lines with replacement; deterministic for a seed. Describes sampling spread over these lines only."""
+    import random
+
+    edits, totals = ("char_edits", "ref_chars") if measure == "cer" else ("word_edits", "ref_words")
+    if paired is not None and [r.get("id") for r in rows] != [r.get("id") for r in paired]:
+        raise ValueError("paired rows must cover the same lines in the same order")
+    n = len(rows)
+    if n == 0:
+        raise ValueError("no rows")
+
+    def rate(index: Sequence[int], table: Sequence[Mapping[str, Any]]) -> float:
+        return sum(table[i][edits] for i in index) / sum(table[i][totals] for i in index)
+
+    def stat(index: Sequence[int]) -> float:
+        return rate(index, rows) - (rate(index, paired) if paired is not None else 0.0)
+
+    rng = random.Random(seed)
+    draws = sorted(stat([rng.randrange(n) for _ in range(n)]) for _ in range(n_resamples))
+    lo = draws[int((1 - level) / 2 * n_resamples)]
+    hi = draws[min(n_resamples - 1, int((1 + level) / 2 * n_resamples))]
+    return {"measure": measure, "estimate": stat(range(n)), "low": lo, "high": hi, "level": level, "n_lines": n, "n_resamples": n_resamples, "paired": paired is not None}
 
 
 def empty_baseline(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:

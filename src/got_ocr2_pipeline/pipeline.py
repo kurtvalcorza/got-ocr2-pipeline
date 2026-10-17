@@ -71,6 +71,12 @@ CACHE_BATCH_SIZE = 4  # images per frozen-prefix forward while caching hidden st
 # whatever the batch size; the decoder still runs the batch at once.
 VISION_BATCH_SIZE = 1
 GRAD_CLIP = 1.0
+# Review GOT2-M1 (pre-registered 2026-10-17 in docs/recipe-grid-preregistration.md, before any run): the learning-rate
+# grid, its default and the margin a config must clear. Everything else in the recipe is fixed (600 training lines,
+# 6 epochs, batch 8, split seed 42, adapt seed 0, the last 4 decoder layers, the best epoch by lowest validation CER).
+RECIPE_GRID = {"G1": 5e-5, "G2": 1e-4, "G3": 2.5e-5}
+RECIPE_DEFAULT = "G1"
+RECIPE_MARGIN = 0.05
 _TRAINABLE_FIRST_LAYER = DECODER_LAYERS - TRAINABLE_LAYERS
 _TRAINABLE_PREFIXES = tuple(f"model.language_model.layers.{i}." for i in range(_TRAINABLE_FIRST_LAYER, DECODER_LAYERS)) + ("model.language_model.norm.",)
 
@@ -169,8 +175,12 @@ def _weight_digest(root: Path) -> str | None:
 
 
 def normalise_text(text: str) -> str:
-    """The transcript form every comparison uses: whitespace runs collapsed to one space, ends stripped."""
-    return " ".join(str(text).split())
+    """The transcript form every comparison uses: Unicode NFC (so a decomposed accent is one character, review m3),
+    whitespace runs collapsed to one space, ends stripped. Every Belfort transcript is already NFC (checked
+    2026-10-17), so the pinned digests are unchanged."""
+    import unicodedata
+
+    return " ".join(unicodedata.normalize("NFC", str(text)).split())
 
 
 def edit_distance(reference: Sequence[Any], hypothesis: Sequence[Any]) -> int:
@@ -374,6 +384,107 @@ def _trainable_names(model: Any) -> list[str]:
     """The last `TRAINABLE_LAYERS` decoder layers and the final norm; the vision tower, the projector, the
     embeddings (tied to the output head) and the earlier decoder layers stay frozen."""
     return [name for name, _ in model.named_parameters() if name.startswith(_TRAINABLE_PREFIXES)]
+
+
+# Review GOT2-m4 (2026-10-17): the attention implementations the explicit causal mask of `tail_hidden_states` is
+# correct for. A decoder layer called with `attention_mask=None` is causal only because SDPA then sets `is_causal`;
+# under eager attention the same call lets every position read later tokens (measured at the frozen weights: a loss
+# 0.03-0.12 away from the full model's). Any other implementation is refused rather than trusted.
+CAUSAL_SAFE_ATTENTION = ("sdpa", "eager")
+
+
+def decoder_attention_implementation(language_model: Any) -> str:
+    """The attention implementation the decoder layers run (`config._attn_implementation`; eager when unset)."""
+    return str(getattr(language_model.config, "_attn_implementation", None) or "eager")
+
+
+def check_tail_attention(language_model: Any) -> str:
+    """Refuse a decoder whose attention implementation the cached-tail loss is not verified for; return it."""
+    impl = decoder_attention_implementation(language_model)
+    if impl not in CAUSAL_SAFE_ATTENTION:
+        raise RuntimeError(
+            f"decoder attention implementation {impl!r} is not one the cached-tail loss is verified for "
+            f"{CAUSAL_SAFE_ATTENTION}; load the model with attn_implementation='sdpa'"
+        )
+    return impl
+
+
+def tail_hidden_states(language_model: Any, first: int, hidden: Any) -> Any:
+    """Run decoder layers `first`.. of `language_model` on cached hidden states under an explicit causal mask.
+
+    The additive lower-triangular mask makes every position attend only to itself and earlier positions whichever
+    implementation `CAUSAL_SAFE_ATTENTION` allows, so the result equals the full model's layers up to float32
+    rounding (`tests/test_got_ocr2_tutorial_review_2026_10_17.py` checks this for SDPA and eager). Right padding
+    needs no key mask: a padded position is never attended to by an earlier one."""
+    import torch
+
+    check_tail_attention(language_model)
+    batch, length = int(hidden.shape[0]), int(hidden.shape[1])
+    position_ids = torch.arange(length, device=hidden.device).unsqueeze(0).expand(batch, -1)
+    embeddings = language_model.rotary_emb(hidden, position_ids)
+    future = torch.ones((length, length), dtype=torch.bool, device=hidden.device).triu(1)
+    mask = torch.zeros((length, length), dtype=hidden.dtype, device=hidden.device).masked_fill(future, torch.finfo(hidden.dtype).min)
+    mask = mask[None, None].expand(batch, 1, length, length)
+    for layer in language_model.layers[first:]:
+        out = layer(hidden, attention_mask=mask, position_ids=position_ids, position_embeddings=embeddings)
+        hidden = out[0] if isinstance(out, tuple) else out
+    return hidden
+
+
+def select_recipe(
+    results: Mapping[str, Mapping[str, Any]], *, default: str = RECIPE_DEFAULT, margin: float = RECIPE_MARGIN
+) -> dict[str, Any]:
+    """Apply the pre-registered grid rules to `adapt()` results keyed by config name, on validation CER only.
+
+    Each config's score is the validation CER of the epoch it kept (`adapt(min_gain=margin)` already keeps epoch 0
+    when the best epoch does not beat the frozen model by more than `margin`). Another config replaces `default` only
+    if its score is lower than the default's by more than `margin` (the lowest such score wins); if every config kept
+    epoch 0, no config beat the frozen model by more than `margin` and the result is the frozen model. Returns the
+    per-config validation table (epochs 0..N), the scores and the choice with its reason."""
+    if default not in results:
+        raise ValueError(f"the default config {default!r} has no result")
+    table, scores = {}, {}
+    for name, result in results.items():
+        history = result["history"]
+        if any(entry.get("val") is None for entry in history):
+            raise ValueError(f"config {name!r} has no validation curve; the grid selects on validation only")
+        table[name] = [round(float(entry["val"]["cer"]), 4) for entry in history]
+        scores[name] = float(history[int(result["best_epoch"])]["val"]["cer"])
+    frozen = {name: float(results[name]["history"][0]["val"]["cer"]) for name in results}
+    if all(int(result["best_epoch"]) == 0 for result in results.values()):
+        chosen = "frozen"
+        reason = f"no config's best validation CER is lower than the frozen model's by more than {margin:g}"
+    else:
+        better = [name for name in results if name != default and scores[default] - scores[name] > margin]
+        # An exact tie between challengers goes to the first in grid order (G2 before G3), as `min` returns it.
+        chosen = min(better, key=lambda name: scores[name]) if better else default
+        reason = (
+            f"{chosen} validation CER {scores[chosen]:.3f} is lower than {default}'s {scores[default]:.3f} by more than {margin:g}"
+            if better
+            else f"no config beats {default} ({scores[default]:.3f}) on validation CER by more than {margin:g}; {default} is kept"
+        )
+    from .metrics import bootstrap_interval
+
+    bootstrap = {}
+    for name in results:
+        if name == default:
+            continue
+        mine = results[name]["history"][int(results[name]["best_epoch"])]["val"].get("rows")
+        theirs = results[default]["history"][int(results[default]["best_epoch"])]["val"].get("rows")
+        if mine and theirs:
+            interval = bootstrap_interval(mine, theirs, measure="cer")
+            bootstrap[f"{name}-{default}"] = {k: round(v, 4) if isinstance(v, float) else v for k, v in interval.items()}
+    return {
+        "paired_bootstrap_best_val_cer": bootstrap,  # informative only; the rule above decides (review m6)
+        "configs": {name: {"lr": float(results[name].get("lr", float("nan"))), "best_epoch": int(results[name]["best_epoch"]), "best_val_cer": round(scores[name], 4)} for name in results},
+        "validation_cer_by_epoch": table,
+        "frozen_val_cer": round(min(frozen.values()), 4),
+        "default": default,
+        "margin": margin,
+        "chosen": chosen,
+        "reason": reason,
+        "selection_split": "validation (the test lines play no part)",
+    }
 
 
 def _check_artifact_manifest(manifest: Mapping[str, Any], artifact_dir: Path, base_sha256: str) -> None:
@@ -603,15 +714,19 @@ class GotOcr2Pipeline:
         seed: int = 0,
         max_new_tokens: int = DEFAULT_LINE_MAX_NEW_TOKENS,
         progress: Callable[[Mapping[str, Any]], None] | None = None,
+        min_gain: float = 0.0,
     ) -> dict[str, Any]:
         """Bounded fine-tuning of the last `TRAINABLE_LAYERS` decoder layers and the final norm on transcribed lines
         with the causal language-model loss over the transcript tokens (the prompt and the image tokens are masked
         out; the sequence ends with the stop token). The frozen prefix — vision tower, projector, embeddings and the
         first decoder layers — is run once per line under no gradient and its output hidden states are cached, so
-        each step runs only the trainable tail; the loss equals the full model's loss exactly. AdamW (no weight
-        decay), gradient clipping at `GRAD_CLIP`, seeded shuffling, no scheduler, no augmentation. Epoch 0 records the
-        frozen model's validation metrics; the epoch with the lowest validation CER is kept (the final one without a
-        validation split). On any exception the frozen weights are restored.
+        each step runs only the trainable tail under an explicit causal mask (`tail_hidden_states`); the loss equals the
+        full model's loss up to float32 rounding. AdamW (no weight decay), gradient clipping at `GRAD_CLIP`, seeded
+        shuffling, no scheduler, no augmentation. Epoch 0 records the frozen model's validation metrics; the epoch with
+        the lowest validation CER is kept (the final one without a validation split), unless its validation CER is not
+        lower than the frozen model's by more than `min_gain`, in which case epoch 0 (the frozen weights) is kept and
+        the selection says so (review GOT2-M1: the pre-registered margin, 0.05 in the tutorial). On any exception the
+        frozen weights are restored.
 
         An already adapted pipeline (or one with a loaded artifact) is refused: training would start from the adapted
         weights and record them as the "frozen model" at epoch 0 (review GOT-M5). Build a fresh pipeline with
@@ -632,12 +747,15 @@ class GotOcr2Pipeline:
             raise ValueError("lr must be in (0, 1e-2]")
         if isinstance(batch_size, bool) or not isinstance(batch_size, int) or not 1 <= batch_size <= 32:
             raise ValueError("batch_size must be an int in 1..32")
+        if isinstance(min_gain, bool) or not isinstance(min_gain, int | float) or not 0.0 <= float(min_gain) < 1.0:
+            raise ValueError("min_gain must be a number in [0, 1)")
         train_checked = validate_dataset(train)["records"]
         val_checked = validate_dataset(val, min_records=1)["records"] if val is not None else None
         names = _trainable_names(model)
         name_set = set(names)
         device = torch.device(self.device)
         language_model = model.model.language_model
+        attention = check_tail_attention(language_model)  # refuse before any work (GOT2-m4)
         first = _TRAINABLE_FIRST_LAYER
         tokenizer = processor.tokenizer
         stop_id = tokenizer.convert_tokens_to_ids(STOP_STRING)
@@ -653,7 +771,9 @@ class GotOcr2Pipeline:
             if val_checked is None:
                 return None
             result = self.evaluate(val_checked, max_new_tokens=max_new_tokens)
-            return {"cer": result["cer"], "wer": result["wer"], "cer_macro": result["cer_macro"], "exact_match": result["exact_match"], "n": result["n"]}
+            # per-line counts kept for the grid's paired bootstrap (review m6)
+            rows = [{k: r[k] for k in ("id", "char_edits", "ref_chars", "word_edits", "ref_words")} for r in result["rows"]]
+            return {"cer": result["cer"], "wer": result["wer"], "cer_macro": result["cer_macro"], "exact_match": result["exact_match"], "n": result["n"], "rows": rows}
 
         def _encode(batch: Sequence[Mapping[str, Any]]) -> tuple[dict[str, Any], Any]:
             encoded = processor([r["image"] for r in batch], return_tensors="pt", padding=True)
@@ -675,10 +795,7 @@ class GotOcr2Pipeline:
             return inputs, labels
 
         def _tail_loss(hidden: Any, labels: Any) -> Any:
-            position_ids = torch.arange(hidden.shape[1], device=device).unsqueeze(0).expand(hidden.shape[0], -1)
-            embeddings = language_model.rotary_emb(hidden, position_ids)
-            for layer in language_model.layers[first:]:
-                hidden = layer(hidden, attention_mask=None, position_ids=position_ids, position_embeddings=embeddings)
+            hidden = tail_hidden_states(language_model, first, hidden)
             # logits only where a transcript token is predicted (the prompt positions carry no loss): the same
             # cross-entropy as the full model's, without a batch x length x vocabulary logit tensor
             targets = labels[:, 1:]
@@ -743,6 +860,11 @@ class GotOcr2Pipeline:
                 if val_checked is None or entry["val"]["cer"] < best_score:
                     best_epoch, best_score = epoch, (entry["val"] or {}).get("cer", float("inf"))
                     best_state = {k: v.detach().clone() for k, v in model.state_dict().items() if k in name_set}
+            selection = "lowest validation CER" if val_checked is not None else "final epoch (no validation split)"
+            frozen_cer = (history[0]["val"] or {}).get("cer")
+            if val_checked is not None and best_epoch != 0 and frozen_cer is not None and frozen_cer - best_score <= float(min_gain):
+                selection = f"frozen model kept: the best epoch ({best_epoch}, validation CER {best_score:.3f}) is not lower than epoch 0 ({frozen_cer:.3f}) by more than {float(min_gain):g}"
+                best_epoch, best_score, best_state = 0, frozen_cer, frozen_state
             model.load_state_dict(best_state, strict=False)
             for param in model.parameters():
                 param.requires_grad_(False)
@@ -764,7 +886,9 @@ class GotOcr2Pipeline:
             "epochs": epochs,
             "batch_size": batch_size,
             "best_epoch": best_epoch,
-            "selection": "lowest validation CER" if val_checked is not None else "final epoch (no validation split)",
+            "selection": selection,
+            "min_gain": float(min_gain),
+            "attention": attention,
             "loss": "causal language-model cross-entropy over the transcript tokens and the stop token; prompt and image tokens masked; computed on the cached frozen-prefix hidden states",
             "lr": float(lr),
             "seed": seed,

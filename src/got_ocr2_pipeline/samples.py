@@ -8,7 +8,8 @@ generate for that image. Whitespace runs in ``text`` are collapsed; case and pun
 The default sample is drawn from the Belfort-line dataset (Teklia; the minutes of the Belfort municipal council,
 19th–20th century French handwriting transcribed by a crowdsourcing campaign; Tarride et al. 2023, **MIT**) as
 converted to parquet by the Hugging Face Hub at an immutable revision: the first ``CORPUS_ROW_GROUPS`` row groups of
-the test shard are read with HTTPS range requests (about 5.5 MB each; the shard's declared size is checked first and
+the test shard (the 800-line sample) and the two row groups after them (the 200-line fresh test, ``FRESH_TEST_ROW_GROUPS``)
+are read with HTTPS range requests (about 5.5 MB each; the shard's declared size is checked first and
 every row group's decoded content is refused unless its SHA-256 matches the pin). Every line image is 128 px tall;
 widths run from about 145 to 9,000 px. The domain gap to the model's printed-text training distribution is the point
 of the sample: the frozen model reads almost none of it.
@@ -30,7 +31,16 @@ from typing import Any
 
 from PIL import Image
 
-from .pipeline import MODEL_ID, normalise_text, validate_image
+from .pipeline import (
+    GRAD_CLIP,
+    MODEL_ID,
+    RECIPE_DEFAULT,
+    RECIPE_GRID,
+    RECIPE_MARGIN,
+    TRAINABLE_LAYERS,
+    normalise_text,
+    validate_image,
+)
 
 CORPUS_NAME = "Belfort-line (test split), first eight parquet row groups"
 CORPUS_REPO = "Teklia/Belfort-line"
@@ -38,7 +48,7 @@ CORPUS_REVISION = "c4a74bbd39f2df314752e7e6026649a39d365cbb"  # refs/convert/par
 CORPUS_FILE = "default/test/0000.parquet"
 CORPUS_BYTES = 210_579_166
 CORPUS_ROWS = 3_819
-CORPUS_ROW_GROUPS = 8  # of 39; 100 lines each
+CORPUS_ROW_GROUPS = 8  # of 39; 100 lines each (row groups 0-7: the 800-line sample)
 CORPUS_LICENSE = "MIT (Teklia; Belfort municipal council minutes, Zenodo record 8041668; Tarride et al. 2023, https://doi.org/10.1145/3604951.3605517)"
 CORPUS_LANGUAGE = "fr"
 CORPUS_URL = f"https://huggingface.co/datasets/{CORPUS_REPO}/resolve/{CORPUS_REVISION}/{CORPUS_FILE}"
@@ -52,7 +62,63 @@ ROW_GROUP_PINS: dict[int, tuple[str, int]] = {
     5: ("2d7e29331bd4e93e0c8a1caa9a83b8f1ede9b17af6dae9377b83f56c56f05689", 4_713_140),
     6: ("49423d91780cb184c4b0069630e85acccb314a113256ced9692a5138c4782ef1", 5_069_794),
     7: ("3a010831456f185399579b4ecf9d46222f95368c3cdbbc2ff103a258b9c16e2f", 5_309_891),
+    # Review GOT2-M1 (Kurt, 2026-10-17): the fresh test. Pinned 2026-10-17 from the same immutable shard; never fetched
+    # or scored by this repository before that date.
+    8: ("f4036cc009855fb2e710fe55b5222b5a016b039a3b8aaf31d32126768ffc3b71", 5_000_587),
+    9: ("d26c4fa972ddcef0cb2152432ee6821f69cd9498cb140edff2baac4094013869", 4_683_815),
 }
+SAMPLE_ROW_GROUPS = tuple(range(CORPUS_ROW_GROUPS))  # 0-7: train / validation / the exposed development test
+# The fresh test (review GOT2-M1): 200 lines that no earlier run of this repository fetched, scored or looked at. The
+# chosen configuration is scored on it only under the pre-registered settings (score-once rule); the 140-line test
+# split of the sample, looked at during the 2026-09 development runs, is shown beside it, labelled "exposed development test". The Florence-2 sibling row
+# (florence2-vision-language-pipeline) uses the same sample split and is expected to adopt this fresh test.
+FRESH_TEST_ROW_GROUPS = (8, 9)
+FRESH_TEST_SIZE = 200
+FRESH_TEST_IDS = tuple(f"belfort-test-{i}" for i in range(800, 1000))  # read_corpus ids: row group * 100 + row index
+FRESH_TEST_DIGEST = "59e018c45e80fbb38f425e120fd31de0d84ca01c1df87e3041eec59f35c3d245"  # dataset_digest of the 200 records
+# The pre-registered evaluation of record (REL13, docs/release-verification.md): the first hosted run under the
+# pre-registered settings. A later pre-registered pass is labelled "reproduction"; with None, the first such pass in a
+# runtime is labelled "pre-registered evaluation (this runtime)".
+RECORDED_EVALUATION: dict[str, str] | None = {
+    "date": "2026-10-17",
+    "commit": "f564d9e819f39e28eab0bf5cd0dc86c4bf4a2205",
+    "notebook_blob": "59bb22a62221e54733dfd72294c3c55f5ea2d072",
+    "runtime": "Colab CLI 0.7.4, fresh Colab Tesla T4, default path",
+    "evidence": "docs/execution-evidence/2026-10-17/got_ocr2_colab_f564d9e_colab-cli-t4.ipynb",
+}
+# Score-once rule (Kurt, 2026-10-17): the fresh test is scored only when EVERY setting below matches. These are the
+# items docs/recipe-grid-preregistration.md fixes, plus the selected config's learning rate (RECIPE_DEFAULT; it changes
+# only if the recorded grid run picks another config, before the evaluation run).
+PREREGISTERED_SETTINGS: dict[str, Any] = {
+    "data": "sample",
+    "split_seed": 42,
+    "train_lines": 600,
+    "validation_lines": 60,
+    "fresh_test_lines": 200,
+    "fresh_test_digest": FRESH_TEST_DIGEST,
+    "epochs": 6,
+    "batch_size": 8,
+    "line_max_new_tokens": 128,
+    "learning_rate": RECIPE_GRID[RECIPE_DEFAULT],
+    "adapt_seed": 0,
+    "trainable_layers": TRAINABLE_LAYERS,
+    "min_gain": RECIPE_MARGIN,
+    "grad_clip": GRAD_CLIP,
+}
+
+
+def preregistration_differences(settings: Mapping[str, Any], *, ignore: Sequence[str] = ()) -> list[str]:
+    """Every pre-registered setting that `settings` misses or changes, as readable strings (empty: the run is under
+    the pre-registered settings). `ignore` drops items a caller varies by design (the grid varies the learning rate)."""
+    out = []
+    for key, expected in PREREGISTERED_SETTINGS.items():
+        if key in ignore:
+            continue
+        got = settings.get(key, "<missing>")
+        same = isinstance(expected, float) and isinstance(got, int | float) and not isinstance(got, bool) and abs(float(got) - expected) <= 1e-12 * max(1.0, abs(expected))
+        if not (same or got == expected):
+            out.append(f"{key}: {got!r} (pre-registered {expected!r})")
+    return out
 DEFAULT_CACHE_DIR = Path("weights") / "belfort"
 
 SAMPLE_SEED = 42
@@ -147,7 +213,7 @@ def fetch_corpus(
 
     cache = Path(cache_dir) if cache_dir is not None else DEFAULT_CACHE_DIR
     cache.mkdir(parents=True, exist_ok=True)
-    wanted = list(groups) if groups is not None else sorted(ROW_GROUP_PINS)
+    wanted = list(groups) if groups is not None else list(SAMPLE_ROW_GROUPS)
     out: dict[int, list[dict[str, Any]]] = {}
     reader = None
     for group in wanted:
@@ -213,6 +279,40 @@ def build_sample_dataset(
         out[name] = pool[cursor : cursor + count]
         cursor += count
     return out
+
+
+def build_fresh_test(
+    records: Sequence[Mapping[str, Any]], splits: Mapping[str, Sequence[Mapping[str, Any]]]
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Check the fresh-test records (`read_corpus` of `FRESH_TEST_ROW_GROUPS`) against their pins and against every
+    split of the sample, and return them with a disjointness report (review GOT2-M1).
+
+    Refused unless: the records are exactly `FRESH_TEST_IDS` with `FRESH_TEST_DIGEST`; every record comes from a fresh
+    row group; and no fresh record shares an id, a source row group or a decoded image (pixel digest) with the train,
+    validation or development-test split. The parquet has no page or writer field, so page- and writer-disjointness
+    cannot be checked: the fresh test is disjoint by line, by id and by source row group (the unit this repository
+    fetches), and remains a same-collection estimate. Verbatim transcript repeats are counted, not refused."""
+    fresh = [dict(r) for r in records]
+    ids = tuple(str(r["id"]) for r in fresh)
+    if ids != FRESH_TEST_IDS:
+        raise ValueError(f"fresh test: {len(ids)} records with ids {ids[:1]}..{ids[-1:]}; expected the {FRESH_TEST_SIZE} pinned ids {FRESH_TEST_IDS[0]}..{FRESH_TEST_IDS[-1]}")
+    digest = dataset_digest(fresh)
+    if digest != FRESH_TEST_DIGEST:
+        raise ValueError(f"fresh test: dataset digest {digest} != pinned {FRESH_TEST_DIGEST}")
+    groups = sorted({r.get("source_row_group") for r in fresh})
+    if any(g not in FRESH_TEST_ROW_GROUPS for g in groups):
+        raise ValueError(f"fresh test: records from row groups {groups}, expected only {list(FRESH_TEST_ROW_GROUPS)}")
+    fresh_images = {image_digest(r["image"]): str(r["id"]) for r in fresh}
+    report: dict[str, Any] = {"n": len(fresh), "row_groups": list(FRESH_TEST_ROW_GROUPS), "digest": digest}
+    for name, part in splits.items():
+        shared_ids = sorted(set(ids) & {str(r["id"]) for r in part})
+        shared_groups = sorted({r.get("source_row_group") for r in part} & set(FRESH_TEST_ROW_GROUPS))
+        shared_images = sorted(fresh_images[k] for k in {image_digest(r["image"]) for r in part} if k in fresh_images)
+        if shared_ids or shared_groups or shared_images:
+            raise ValueError(f"fresh test overlaps the {name} split: ids {shared_ids[:3]}, row groups {shared_groups}, images {shared_images[:3]}")
+        report[name] = {"shared_ids": 0, "shared_row_groups": 0, "shared_images": 0, "transcripts_also_in_" + name: len(transcript_overlap(part, fresh))}
+    report["unit"] = "disjoint by line image, id and source row group; no page or writer field, so not page- or writer-disjoint (same-collection estimate)"
+    return fresh, report
 
 
 def fetch_sample_dataset(*, cache_dir: str | Path | None = None, seed: int = SAMPLE_SEED) -> dict[str, list[dict[str, Any]]]:
@@ -382,12 +482,23 @@ def split_dataset(
     return {"test": unique[:n_test], "validation": unique[n_test : n_test + n_val], "train": unique[n_test + n_val :]}
 
 
-def transcript_overlap(train: Sequence[Mapping[str, Any]], other: Sequence[Mapping[str, Any]]) -> list[str]:
+def _fold(text: str) -> str:
+    """Case- and punctuation-folded transcript, for a looser repeat count (review m2)."""
+    import unicodedata
+
+    kept = "".join(c for c in normalise_text(text).casefold() if not unicodedata.category(c).startswith("P"))
+    return " ".join(kept.split())
+
+
+def transcript_overlap(train: Sequence[Mapping[str, Any]], other: Sequence[Mapping[str, Any]], *, fold: bool = False) -> list[str]:
     """Ids of the `other` records whose normalised transcript also occurs verbatim in `train` (review GOT-M3: formulaic
     lines such as "Le Conseil Municipal" repeat across pages, so an image-disjoint split can still test text it trained
     on)."""
-    seen = {normalise_text(r["text"]) for r in train}
-    return [str(r["id"]) for r in other if normalise_text(r["text"]) in seen]
+    # Exact match after whitespace collapse (and NFC) is a lower bound on repeats; `fold=True` also ignores case and
+    # punctuation, which counts more formulaic variants (review m2).
+    key = _fold if fold else normalise_text
+    seen = {key(r["text"]) for r in train}
+    return [str(r["id"]) for r in other if key(r["text"]) in seen]
 
 
 def load_byod_dataset(path: str | Path) -> list[dict[str, Any]]:
