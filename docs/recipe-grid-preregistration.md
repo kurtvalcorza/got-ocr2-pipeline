@@ -81,6 +81,57 @@ the notebook no longer quotes them.
   `docs/release-verification.md`. If the rules pick a config other than G1, the default `LEARNING_RATE` changes to
   that config's rate in a later commit, and the notebook names this run as its source.
 
+## Amendment 1 — 2026-10-17, before any hosted run
+
+Status: committed before any grid run and before any hosted run of the notebook. It changes how the fresh test is
+used and who reports it. It changes no config, no fixed setting, no margin and no pin above. The original
+pre-registration is commit `7342639` on the branch `fix/got-ocr2-tutorial-review-2026-10-17`.
+
+Source: the maintainer's fleet-wide score-once rule of 2026-10-17 (`SCORE_ONCE_RULE.md`, phase-3 fresh-test rows) and
+the peer review of PR #12 (M1–M3, m1, m3, m6, S3).
+
+1. **The grid run is selection-only.** With `RUN_RECIPE_GRID = True` the notebook records the validation table and
+   the chosen config. It never scores the fresh test. It prints that the fresh test is scored on the default path with
+   the chosen config. Its Sections 8–9 compare on the exposed development test only, and they write
+   `*_exploratory_<n>.json` files. The grid also records the fixed settings it ran under. A grid whose fixed settings
+   differ from the table above is labelled exploratory (`preregistered_fixed_settings: false`).
+2. **Run order.** The grid run comes first. If its rules choose G2 or G3, the default `LEARNING_RATE` (and
+   `RECIPE_DEFAULT`) changes to the winner in a commit made before the evaluation run.
+3. **The evaluation.** The fresh test is scored only when every pre-registered setting holds (`PREREGISTERED_SETTINGS`
+   in `samples.py`):
+   - the sample, split seed 42 and 600 / 60 / 200 lines with the pinned fresh-test digest;
+   - 6 epochs, batch 8 and a 128-token line budget;
+   - the selected config's learning rate;
+   - adaptation seed 0, 4 trainable layers, the 0.05 margin and gradient clipping at 1.0.
+
+   The notebook computes one `preregistered` boolean over all of them. A run with any other setting is exploratory:
+   a changed form field, BYOD, an optional experiment, the Section 10 activity, or `BATCH_SIZE = 4` against an
+   out-of-memory error. An exploratory run compares on validation and on the exposed development test, never on the
+   fresh test, and names the settings that differ.
+4. **The result and reproductions.** The first recorded hosted run of the default path under the pre-registered
+   settings is **the** result. A later hosted run with identical settings is a **reproduction of the pre-registered
+   evaluation**, provided nothing was changed in response to the test number. It is logged and reported as one. The
+   notebook labels every pass `pre-registered evaluation`, `reproduction` or `not scored (exploratory)`. It keeps a run
+   history in `outputs/got_ocr2_run_history.json`. It never overwrites the pre-registered result file with a
+   reproduction (`*_reproduction_<n>.json`) or an exploratory pass (`*_exploratory_<n>.json`).
+5. **Where the frozen model is scored.** Section 6 now shows the baselines and the frozen model on the exposed
+   development test. Under the pre-registered settings, Section 7 scores the frozen model and the two baselines on the
+   fresh test, before adapting. The primary metric is unchanged: corpus CER and WER on all 200 fresh-test lines. The
+   lines whose transcript repeats verbatim in training stay in it. They are reported as a separate row beside the
+   192 others, with a case- and punctuation-folded count beside the exact one.
+6. **Tie-break (stated explicitly).**
+   - If both G2 and G3 clear the margin over G1, the one with the lower best validation CER wins. This sentence was
+     already in the original commit `7342639`.
+   - An exact tie between G2 and G3 goes to G2, the first in grid order.
+7. **Text normalisation.** `normalise_text` adds Unicode NFC before collapsing whitespace. All 1,000 Belfort
+   transcripts (row groups 0–9) were already NFC on 2026-10-17, so `SAMPLE_DIGEST` and `FRESH_TEST_DIGEST` do not
+   change.
+8. **Informative statistics (they decide nothing).** These figures sit beside the rules above and do not change them:
+   - The grid records per-line validation counts and a paired line-bootstrap interval for G2−G1 and G3−G1 at each
+     config's best epoch.
+   - The evaluation prints 95 % line-bootstrap intervals for the adapted CER and WER, and for the difference between
+     the adapted and frozen models.
+
 ## Results
 
 Pending: no grid run has been recorded yet.
