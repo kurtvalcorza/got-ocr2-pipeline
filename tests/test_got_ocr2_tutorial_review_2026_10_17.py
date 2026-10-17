@@ -98,6 +98,34 @@ def test_the_parity_test_detects_future_token_leakage():
     assert leaked > 1e-3, "an unmasked eager tail should differ from the full decoder"
 
 
+@pytest.mark.parametrize("attn", ["sdpa", "eager"])
+def test_padded_batch_tail_loss_matches_the_full_model_masked_loss(attn):
+    """Review S4: right-padded lines with -100 labels, as training batches them from the cache."""
+    torch, model = _tiny_decoder(attn)
+    head = torch.nn.Linear(32, 64, bias=False)
+    lengths = [11, 7, 4]
+    embeds = torch.randn(3, 11, 32)
+    labels = torch.full((3, 11), -100)
+    for i, n in enumerate(lengths):
+        embeds[i, n:] = 0.0
+        labels[i, 2:n] = torch.randint(0, 64, (n - 2,))
+    with torch.no_grad():
+        full_sum, total = 0.0, 0
+        for i, n in enumerate(lengths):  # each line alone, unpadded, through the full decoder
+            out = model(inputs_embeds=embeds[i : i + 1, :n])
+            logits = head(out.last_hidden_state[0, :-1])
+            target = labels[i, 1:n]
+            keep = target != -100
+            full_sum += torch.nn.functional.cross_entropy(logits[keep], target[keep], reduction="sum").item()
+            total += int(keep.sum())
+        hidden = model(inputs_embeds=embeds, output_hidden_states=True).hidden_states[2]
+        tail = got.tail_hidden_states(model, 2, hidden)
+        targets = labels[:, 1:]
+        keep = targets != -100
+        loss = torch.nn.functional.cross_entropy(head(model.norm(tail[:, :-1][keep])), targets[keep]).item()
+    assert abs(loss - full_sum / total) < 1e-5
+
+
 def test_an_unverified_attention_implementation_is_refused():
     class Config:
         _attn_implementation = "flash_attention_2"
@@ -149,23 +177,36 @@ def test_grid_constants_match_the_preregistration_committed_before_any_run():
     assert sig.parameters["min_gain"].default == 0.0
 
 
-def _section7(tmp_path, monkeypatch, grid: bool):
-    """Execute Section 7 verbatim with a stand-in pipeline (records the calls; no model)."""
+def _records(prefix: str, n: int) -> list[dict]:
+    return [{"id": f"{prefix}{k}", "text": f"ligne {prefix} {k % 7}"} for k in range(n)]
+
+
+def _harness(tmp_path, monkeypatch, *, grid=False, form=None, data=None, ns=None, calls=None, sections=(7, 8)):
+    """Execute Sections 7 and 8 verbatim with a stand-in pipeline that records which record sets it scores. `form`
+    replaces `# @param` literals of Section 7 (e.g. {"EPOCHS": "10"}); `data` overrides Section 4/6 names."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "outputs").mkdir()
+    (tmp_path / "outputs").mkdir(exist_ok=True)
     curves = {5e-5: [1.5, 0.9, 0.7], 1e-4: [1.5, 0.8, 0.6], 2.5e-5: [1.5, 1.1, 0.95]}
-    calls = []
+    calls = [] if calls is None else calls
+    fresh, dev, val, train = _records("f", 200), _records("d", 140), _records("v", 60), _records("t", 600)
 
     class FakePipe:
         adapter = None
 
         def adapt(self, train, val, *, epochs, lr, batch_size, max_new_tokens, progress, min_gain):
             calls.append(("adapt", lr, min_gain))
-            history = [{"epoch": e, "train_loss": None if e == 0 else 1.0, "val": {"cer": c, "wer": 1.0, "cer_macro": c, "exact_match": 0.0}} for e, c in enumerate(curves[lr])]
+            curve = curves.get(lr, curves[5e-5])
+            history = [{"epoch": e, "train_loss": None if e == 0 else 1.0, "val": {"cer": curve[e], "wer": 1.0, "cer_macro": 0.5, "exact_match": 0.0}} for e in range(3)]
             for entry in history:
                 progress(entry)
             self.adapter = {"best_epoch": 2}
             return {"lr": lr, "best_epoch": 2, "history": history, "n_trainable": 1, "n_total": 2, "first_trainable_layer": 20, "seed": 0, "selection": "lowest validation CER", "attention": "sdpa", "loss": "x", "cache_seconds": 0.0, "min_gain": min_gain}
+
+        def evaluate(self, records, *, max_new_tokens, batch_size):
+            calls.append(("evaluate", records[0]["id"][0], len(records)))
+            out = got.ocr_metrics(["ligne"] * len(records), records)
+            out.update({"hypotheses": ["ligne"] * len(records), "truncated": 0, "adapted": self.adapter is not None, "verdict": "measured"})
+            return out
 
         def save_artifact(self, path, metadata=None):
             calls.append(("save", Path(path).name))
@@ -174,32 +215,116 @@ def _section7(tmp_path, monkeypatch, grid: bool):
         def load_artifact(self, path):
             calls.append(("load", Path(path).name))
 
-    pipe = FakePipe()
-    ns = {name: getattr(got, name) for name in got.__all__}
-    ns.update({"os": os, "Path": Path, "json": json, "time": __import__("time"), "shutil": __import__("shutil"), "pipe": pipe, "METRICS": ("cer", "wer", "cer_macro", "exact_match"), "LINE_MAX_NEW_TOKENS": 128, "train_records": [], "val_records": [], "NOTEBOOK_SOURCE": {"repository_revision": "x"}, "require_valid_run": lambda section: None, "reset_to_pretrained": lambda: calls.append(("reset",))})
-    source = _code_after("## 7. Bounded fine-tuning")
-    assert "RUN_RECIPE_GRID = False  # @param" in source
-    if grid:
-        source = source.replace("RUN_RECIPE_GRID = False", "RUN_RECIPE_GRID = True", 1)
-    exec(compile(source, "<section 7>", "exec"), ns)
+    if ns is None:
+        ns = {name: getattr(got, name) for name in got.__all__}
+        pipe = FakePipe()
+
+        def reset():
+            calls.append(("reset",))
+            pipe.adapter = None
+
+        frozen_dev = got.ocr_metrics(["zz"] * len(dev), dev)
+        frozen_dev.update({"hypotheses": ["zz"] * len(dev), "truncated": 0, "adapted": False})
+        ns.update({"os": os, "Path": Path, "json": json, "time": __import__("time"), "shutil": __import__("shutil"), "pipe": pipe, "METRICS": ("cer", "wer", "cer_macro", "exact_match"), "LINE_MAX_NEW_TOKENS": 128, "NOTEBOOK_SOURCE": {"repository_revision": "x"}, "require_valid_run": lambda section: None, "reset_to_pretrained": reset,
+                   "data_label": "sample", "SPLIT_SEED": 42, "USE_BYOD": False, "train_records": train, "val_records": val, "test_records": fresh, "dev_test_records": dev, "dataset_manifests": {"fresh_test": {"digest": got.FRESH_TEST_DIGEST}, "train": {"digest": "t"}}, "data_source": "sample", "disjoint": {}, "fresh_report": {"n": 200},
+                   "overlap": {"validation": [], "test": ["f3"], "development_test": ["d1"]}, "shown_records": dev, "shown_on": "exposed development test", "empty_shown": got.empty_baseline(dev), "constant_shown": got.constant_baseline(train, dev), "frozen_shown": frozen_dev})
+        ns.update(data or {})
+    for section in sections:
+        source = _code_after({7: "## 7. Bounded fine-tuning", 8: "## 8. Held-out evaluation"}[section])
+        if section == 7:
+            assert "RUN_RECIPE_GRID = False  # @param" in source
+            if grid:
+                source = source.replace("RUN_RECIPE_GRID = False", "RUN_RECIPE_GRID = True", 1)
+            for name, value in (form or {}).items():
+                source, n = re.subn(rf"^{name} = [^ ]+  # @param", f"{name} = {value}  # @param", source, count=1, flags=re.M)
+                assert n == 1, name
+        exec(compile(source, f"<section {section}>", "exec"), ns)
     return ns, calls
 
 
+def _scored_fresh(calls):
+    return [c for c in calls if c[0] == "evaluate" and c[1] == "f"]
+
+
 def test_section7_default_path_trains_g1_only(tmp_path, monkeypatch):
-    ns, calls = _section7(tmp_path, monkeypatch, grid=False)
+    ns, calls = _harness(tmp_path, monkeypatch, sections=(7,))
     assert [c for c in calls if c[0] == "adapt"] == [("adapt", 5e-5, 0.05)]
-    assert ns["chosen_config"] == "G1" and ns["recipe_grid"] is None
+    assert ns["preregistered"] and ns["setting_differences"] == [] and ns["chosen_config"] == "G1" and ns["recipe_grid"] is None
+    assert len(_scored_fresh(calls)) == 1  # the frozen model, before adapting
     assert not (tmp_path / "outputs" / "got_ocr2_recipe_grid.json").exists()
 
 
 def test_section7_grid_trains_three_configs_from_pretrained_and_keeps_the_chosen_adapter(tmp_path, monkeypatch, capsys):
-    ns, calls = _section7(tmp_path, monkeypatch, grid=True)
+    ns, calls = _harness(tmp_path, monkeypatch, grid=True)
     assert [c[1] for c in calls if c[0] == "adapt"] == [5e-5, 1e-4, 2.5e-5]
     assert calls.count(("reset",)) == 4  # before each config and before loading the chosen adapter
     assert ns["chosen_config"] == "G2" and ("load", "G2") in calls and ns["adapt_result"]["lr"] == 1e-4
     table = json.loads((tmp_path / "outputs" / "got_ocr2_recipe_grid.json").read_text(encoding="utf-8"))
     assert table["chosen"] == "G2" and set(table["validation_cer_by_epoch"]) == {"G1", "G2", "G3"}
+    assert table["fresh_test_scored"] is False and table["preregistered_fixed_settings"] is True
+    # Score-once rule item 4: the selection-only grid run never scores the fresh test.
+    assert _scored_fresh(calls) == [] and ns["test_look"] == "not scored (exploratory)"
     assert "G2" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("form", "data", "changed"), [
+    ({"EPOCHS": "10"}, None, "epochs"),
+    ({"BATCH_SIZE": "4"}, None, "batch_size"),
+    ({"LEARNING_RATE": "1e-4"}, None, "learning_rate"),
+    (None, {"SPLIT_SEED": 7}, "split_seed"),
+    (None, {"data_label": "BYOD", "USE_BYOD": True}, "data"),
+    (None, {"LINE_MAX_NEW_TOKENS": 64}, "line_max_new_tokens"),
+])
+def test_any_changed_setting_never_scores_the_fresh_test(tmp_path, monkeypatch, form, data, changed):
+    ns, calls = _harness(tmp_path, monkeypatch, form=form, data=data)
+    assert not ns["preregistered"] and any(d.startswith(changed) for d in ns["setting_differences"])
+    assert _scored_fresh(calls) == [] and ns["test_look"] == "not scored (exploratory)"
+    assert ns["chosen_config"].startswith("exploratory")
+    assert (tmp_path / "outputs" / "got_ocr2_evaluation_report_exploratory_1.json").is_file()
+    assert not (tmp_path / "outputs" / "got_ocr2_evaluation_report.json").exists()
+
+
+def test_identical_rerun_is_labelled_a_reproduction_and_keeps_the_first_result(tmp_path, monkeypatch):
+    ns, calls = _harness(tmp_path, monkeypatch)
+    assert ns["test_look"] == "pre-registered evaluation" and ns["scored_on"].startswith("fresh test")
+    first = (tmp_path / "outputs" / "got_ocr2_evaluation_report.json").read_text(encoding="utf-8")
+    ns, calls = _harness(tmp_path, monkeypatch, ns=ns, calls=calls)  # same settings, same runtime
+    assert ns["test_look"] == "reproduction"
+    assert (tmp_path / "outputs" / "got_ocr2_evaluation_report.json").read_text(encoding="utf-8") == first
+    assert (tmp_path / "outputs" / "got_ocr2_evaluation_report_reproduction_1.json").is_file()
+    history = json.loads((tmp_path / "outputs" / "got_ocr2_run_history.json").read_text(encoding="utf-8"))
+    assert [h["test_look"] for h in history] == ["pre-registered evaluation", "reproduction"]
+    report = json.loads(first)
+    assert report["preregistered"] is True and report["settings_differ"] == [] and "bootstrap_95" in report
+    assert {"adapted_unseen_transcripts", "adapted_seen_transcripts"} <= set(report["transcript_breakdown"])
+
+
+def test_no_permanent_scored_once_claims():
+    nb_text = NOTEBOOK.read_text(encoding="utf-8")
+    assert "scored once)" not in nb_text and "reported result (scored once)" not in nb_text
+    assert "a page-disjoint split is impossible" not in _markdown() and "That is the claim" not in _markdown()
+    assert "test_examples" not in _code_after("## 4. Belfort lines")  # review m9
+
+
+def test_bootstrap_interval_is_deterministic_and_paired():
+    rows = [{"id": k, "char_edits": k % 3, "ref_chars": 4, "word_edits": 1, "ref_words": 2} for k in range(40)]
+    other = [{**r, "char_edits": 2} for r in rows]
+    a = got.bootstrap_interval(rows, seed=1)
+    assert a == got.bootstrap_interval(rows, seed=1) and a["low"] <= a["estimate"] <= a["high"]
+    d = got.bootstrap_interval(rows, other, measure="cer")
+    assert d["paired"] and d["low"] <= d["estimate"] <= d["high"]
+    with pytest.raises(ValueError, match="same lines"):
+        got.bootstrap_interval(rows, other[::-1])
+
+
+def test_preregistration_differences_and_folded_overlap():
+    assert got.preregistration_differences(got.PREREGISTERED_SETTINGS) == []
+    assert got.preregistration_differences({**got.PREREGISTERED_SETTINGS, "epochs": 10}) == ["epochs: 10 (pre-registered 6)"]
+    assert got.preregistration_differences({**got.PREREGISTERED_SETTINGS, "learning_rate": 1e-4}, ignore=("learning_rate",)) == []
+    train = [{"id": "a", "text": "Le Conseil municipal."}]
+    other = [{"id": "x", "text": "le conseil Municipal"}]
+    assert got.transcript_overlap(train, other) == [] and got.transcript_overlap(train, other, fold=True) == ["x"]
+    assert got.normalise_text("été") == "été"  # NFC (review m3)
 
 
 # --- GOT2-M1: the fresh test ----------------------------------------------------------------------------------------
@@ -260,7 +385,7 @@ def test_selection_is_on_validation_and_the_test_is_scored_once():
     for stale in ("moved the held-out number", "1.302", "on its own 80-line test split", "test CER still ended at 1.040", "build record"):
         assert stale not in markdown, stale
     assert re.search(r"(chosen|selected) (among|from) .{0,80}validation", markdown.lower())
-    assert "with the fresh test scored once after the choice" in markdown and "**exposed development test**" in markdown
+    assert "with the fresh test scored after the choice and only under the pre-registered settings" in markdown and "**exposed development test**" in markdown
     assert "pending" in markdown and "fix/got-ocr2-tutorial-review-2026-10-17-gridrun" in markdown
 
 
