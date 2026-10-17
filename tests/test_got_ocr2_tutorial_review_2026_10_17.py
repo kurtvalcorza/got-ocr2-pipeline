@@ -250,7 +250,7 @@ def test_real_fresh_test_is_disjoint_when_the_row_groups_are_cached():
 
 def test_cer_is_read_as_edits_per_reference_character():
     markdown = _markdown()
-    assert "three characters in four now right" not in markdown and "**edits per reference character**" in markdown
+    assert not re.search(r"three characters in four|\b(two|three|four|\d+) (characters )?in (three|four|five|\d+)\b[^.]{0,40}right", markdown) and "**edits per reference character**" in markdown
     assert "4,680 character edits" in markdown and "6,169 reference" in markdown and "6,618 characters" in markdown
     assert "'char_edits': frozen_test['char_edits']" in _code_after("## 6. Baselines")
 
