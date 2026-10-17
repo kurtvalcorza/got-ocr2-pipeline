@@ -29,7 +29,7 @@ Review fixes (row 30 review, 2026-10-17, GOT2-M1/M2, GOT2-m1..m8; maintainer dec
 rate is chosen on validation CER from a pre-registered grid (G1 5e-5, G2 1e-4, G3 2.5e-5; 0.05 margin; frozen model
 kept unless beaten by more than 0.05; `docs/recipe-grid-preregistration.md`), behind the `RUN_RECIPE_GRID` form field,
 off by default; the headline numbers come from a fresh test (row groups 8-9, 200 never-scored lines, pinned and checked
-disjoint) scored only under the pre-registered settings, and the old 140-line test is reported once as an "exposed development test"; the CER worked
+disjoint) scored only under the pre-registered settings, and the old 140-line test is shown, labelled, as an "exposed development test"; the CER worked
 answer reads edits per reference character instead of a fraction right; pretraining overlap is disclosed (DAT9);
 quoted numbers name the blob they came from (REL13); the tail-loss claim reads "up to float32 rounding" and the tail runs
 under an explicit causal mask; the notebook declares spec 2.5, `notebook_kind` TUTORIAL, the use notice and IEEE
@@ -609,7 +609,7 @@ TEMPLATE = {
                 "EPOCHS = 6  # @param {{type:\"integer\"}}\n"
                 "LEARNING_RATE = 5e-5  # @param {{type:\"number\"}}\n"
                 "BATCH_SIZE = 8  # @param {{type:\"integer\"}}\n"
-                "RUN_RECIPE_GRID = True  # @param {{type:\"boolean\"}}\n\n\n"
+                "RUN_RECIPE_GRID = False  # @param {{type:\"boolean\"}}\n\n\n"
                 "def report(entry):\n"
                 "    row = {{'epoch': entry['epoch'], 'train_loss': None if entry['train_loss'] is None else round(entry['train_loss'], 4)}}\n"
                 "    if entry.get('val'):\n"
@@ -1006,7 +1006,7 @@ TEMPLATE = {
         "this hand but not yet whole words, and the numbers are read as micro and macro rates, per measure, against two "
         "non-adapted baselines and the frozen model, with the hypothesis length beside them rather than in isolation.\n\n"
         "This revision's result is the fresh test: 200 lines of the same collection, scored only under the pre-registered settings, after a validation-only "
-        "choice; the 140-line development test is reported once beside it because development runs had looked at it. The "
+        "choice; the 140-line development test is shown beside it, labelled, because development runs had looked at it. The "
         "validation split that picks the epoch and the learning rate is 60 lines, and both rates are corpus edit distances over one crowdsourced transcription — not a benchmark, not a measure of "
         "reading order or layout. **The split is by line image, not by page:** the dataset has no page or writer field, so "
         "the held-out lines can share pages and hands with the training lines, and the held-out rate is a same-collection "
@@ -1111,7 +1111,7 @@ TEMPLATE = {
         "- **Training / validation / test split:** lines used to train, to choose the epoch and the learning rate, and to "
         "report the final result once; split by line image, so no image is in two splits — but not by page (Section 4).\n"
         "- **Fresh test / exposed development test:** a test set no earlier run looked at, scored only under the pre-registered settings, after every choice "
-        "is made; and a former test split that earlier runs looked at, reported once under that label.\n"
+        "is made; and a former test split that earlier runs looked at, shown under that label.\n"
         "- **Pre-registered grid:** configurations and selection rules written down and committed before any run, so the "
         "result cannot steer the choice.\n"
         "- **Same-collection estimate:** a held-out score on data drawn from the same pages, hands and registers as the "

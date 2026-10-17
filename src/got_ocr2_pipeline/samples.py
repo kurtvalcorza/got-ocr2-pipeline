@@ -69,8 +69,8 @@ ROW_GROUP_PINS: dict[int, tuple[str, int]] = {
 }
 SAMPLE_ROW_GROUPS = tuple(range(CORPUS_ROW_GROUPS))  # 0-7: train / validation / the exposed development test
 # The fresh test (review GOT2-M1): 200 lines that no earlier run of this repository fetched, scored or looked at. The
-# chosen configuration is scored on it once; the 140-line test split of the sample, looked at during the 2026-09
-# development runs, is reported once beside it as the "exposed development test". The Florence-2 sibling row
+# chosen configuration is scored on it only under the pre-registered settings (score-once rule); the 140-line test
+# split of the sample, looked at during the 2026-09 development runs, is shown beside it, labelled "exposed development test". The Florence-2 sibling row
 # (florence2-vision-language-pipeline) uses the same sample split and is expected to adopt this fresh test.
 FRESH_TEST_ROW_GROUPS = (8, 9)
 FRESH_TEST_SIZE = 200
