@@ -82,7 +82,7 @@ CODE_MARKERS = (
     "setting_differences = preregistration_differences(run_settings, ignore=('learning_rate',) if RUN_RECIPE_GRID else ())",
     "preregistered = not RUN_RECIPE_GRID and not setting_differences",
     "frozen_fresh = pipe.evaluate(test_records, max_new_tokens=LINE_MAX_NEW_TOKENS, batch_size=EVAL_BATCH_SIZE)",
-    "test_look = 'reproduction' if earlier else 'pre-registered evaluation'",
+    "test_look = 'reproduction' if earlier or RECORDED_EVALUATION else 'pre-registered evaluation (this runtime)'",
     "test_look = 'not scored (exploratory)'",
     "history_path.write_text(json.dumps(run_history, indent=2, ensure_ascii=False), encoding='utf-8')",
     "'test_look': test_look,",

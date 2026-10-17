@@ -76,6 +76,16 @@ FRESH_TEST_ROW_GROUPS = (8, 9)
 FRESH_TEST_SIZE = 200
 FRESH_TEST_IDS = tuple(f"belfort-test-{i}" for i in range(800, 1000))  # read_corpus ids: row group * 100 + row index
 FRESH_TEST_DIGEST = "59e018c45e80fbb38f425e120fd31de0d84ca01c1df87e3041eec59f35c3d245"  # dataset_digest of the 200 records
+# The pre-registered evaluation of record (REL13, docs/release-verification.md): the first hosted run under the
+# pre-registered settings. A later pre-registered pass is labelled "reproduction"; with None, the first such pass in a
+# runtime is labelled "pre-registered evaluation (this runtime)".
+RECORDED_EVALUATION: dict[str, str] | None = {
+    "date": "2026-10-17",
+    "commit": "f564d9e819f39e28eab0bf5cd0dc86c4bf4a2205",
+    "notebook_blob": "59bb22a62221e54733dfd72294c3c55f5ea2d072",
+    "runtime": "Colab CLI 0.7.4, fresh Colab Tesla T4, default path",
+    "evidence": "docs/execution-evidence/2026-10-17/got_ocr2_colab_f564d9e_colab-cli-t4.ipynb",
+}
 # Score-once rule (Kurt, 2026-10-17): the fresh test is scored only when EVERY setting below matches. These are the
 # items docs/recipe-grid-preregistration.md fixes, plus the selected config's learning rate (RECIPE_DEFAULT; it changes
 # only if the recorded grid run picks another config, before the evaluation run).
