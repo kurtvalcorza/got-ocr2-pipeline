@@ -99,7 +99,7 @@ CODE_MARKERS = (
     "dimer_stop = True",
     "require_valid_run('Section 6')",
     "require_valid_run('Section 9')",
-    "print(f'BYOD refused: {exc}')",
+    "raise InputRefused(f'Refused: {byod_label}: {reason}. Nothing was trained or scored on this input;",
     "adapted_test = pipe.evaluate(scored_records, max_new_tokens=LINE_MAX_NEW_TOKENS, batch_size=EVAL_BATCH_SIZE)",
     "adapted_val = pipe.evaluate(val_records, max_new_tokens=LINE_MAX_NEW_TOKENS, batch_size=EVAL_BATCH_SIZE)",
     # GOT-m2: the outcome is recorded, not asserted; GOT-M4: CER and WER are answered separately per baseline
