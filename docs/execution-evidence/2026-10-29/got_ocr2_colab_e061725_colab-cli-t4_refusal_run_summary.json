@@ -1,0 +1,72 @@
+{
+  "repo": "got-ocr2-pipeline",
+  "sha": "e061725e30b689df5c6616296bcba9a71e87702a",
+  "notebook": "tutorials/got_ocr2_colab.ipynb",
+  "blob": "e2b4883bf500ff1082bc78a419e3aee0f3c3ec69",
+  "gpu": "T4",
+  "session": "suite-got-e061725-4ab2",
+  "started_utc": "2026-10-29T16:37:59+00:00",
+  "runner": "Colab CLI `colab exec -f` on a fresh session (not a browser Run all)",
+  "overrides": [
+    {
+      "name": "USE_BYOD",
+      "from": "False",
+      "to": "True"
+    },
+    {
+      "name": "BYOD_PATH",
+      "from": "''",
+      "to": "'/etc/hostname'"
+    }
+  ],
+  "run_copy_blob": "cb95911edf0589598b86224c05267414472f9125",
+  "run_copy_sha256": "6d8879710c470e472c806e100b60ffd13aa5009023d987c3b9c1eb94e5542465",
+  "run_copy_note": "refusal run: the run copy is the committed notebook with the listed assignment overrides, cut immediately after the refusal cell and re-serialised (nbformat layout); input_unchanged compares against that copy",
+  "truncated_after_cell": "got_ocr2-17",
+  "refusal_cell_ref": "got_ocr2-17",
+  "refusal_cell_index": 8,
+  "cells_dropped": 11,
+  "code_cells_dropped": 5,
+  "original_sha256": "a92c4d2f3de9451fe41952c67dcc7af1aa05c09e4d31636adc136e39c129ea5e",
+  "status": "[suite-got-e061725-4ab2] gpu-t4-s-euw4c1-ur7jryedgsfv | Hardware: T4 | Shape: Standard | Variant: GPU | Status: IDLE",
+  "exec_exit_code": 0,
+  "stopped": true,
+  "stop_verified": true,
+  "wall_s": 106.3,
+  "input_unchanged": true,
+  "executed_file": "got_ocr2_colab_e061725_colab-cli-t4_output.ipynb",
+  "log_cells": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "log_total": 8,
+  "code_cells": 8,
+  "executed_cells": 5,
+  "errors": [
+    {
+      "cell": "got_ocr2-17",
+      "ename": "IsolatedCellStop",
+      "evalue": "Refused: hostname: /etc/hostname is neither a directory nor a zip file. Nothing was trained or scored on this input; the 0 files already in outputs/ are kept but come from the earlier run (none yet), as outputs/got_ocr2_run_invalidated.json says. Fix what the message names, then select this cell and"
+    }
+  ],
+  "execution_counts": [],
+  "sequential": null,
+  "executed_sha256": "56319084c0b62987cf3a2b15e0a4225d57c1e6b81493afe26203e387133a61eb",
+  "log_sequential_complete": true,
+  "mode": "expect_refusal",
+  "refusal_line": "Refused: hostname: /etc/hostname is neither a directory nor a zip file. Nothing was trained or scored on this input; the 0 files already in outputs/ are kept but come from the earlier run (none yet), as outputs/got_ocr2_run_invalidated.json says. Fix what the message names, then select this cell and choose Runtime -> Run after; Sections 6-9 stop with one line until this cell succeeds.",
+  "halting_cell_index": 8,
+  "halting_cell_id": "got_ocr2-17",
+  "error_cells": [
+    8
+  ],
+  "refusal_fail_reasons": [],
+  "refusal_ok": true,
+  "verdict": "PASS"
+}

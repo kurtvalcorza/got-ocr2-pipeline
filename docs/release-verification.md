@@ -266,9 +266,55 @@ The notebook was regenerated for the row 30 tutorial review. Its blob `59bb22a6`
 - **Notebook text to requote (REL13, blob `59bb22a6`; done in `2560e33`/`8442f8e`).** The blob still says the fresh-test numbers and the grid table are pending (Section 8 worked answer, Section 10 activity worked answer, the claim and limits paragraphs) and quotes the 966 s adaptation time of the `cbe04372` run; the figures above replace them in the next regeneration. No quoted number is contradicted by this run.
 - **Not exercised.** BYOD, the change-one-thing activity, `PAGE_MODE = 'format'`, Kaggle, and any browser-only interaction. Status stays **Candidate**.
 
+### Hosted Colab T4 runs of blob `e2b4883b` (2026-10-29)
+
+These runs executed the PR head `e061725e30b689df5c6616296bcba9a71e87702a`, notebook `tutorials/got_ocr2_colab.ipynb` blob `e2b4883bf500ff1082bc78a419e3aee0f3c3ec69`, fetched at the 40-character SHA and Git-blob verified, with the Colab CLI (`colab exec -f`) on a fresh Colab Tesla T4 session (not a browser `Run all`). Each `run_summary.json` records `verdict` `PASS`, `exec_exit_code` 0, `input_unchanged` true and `stop_verified` true (the VM was released), and the SHA-256 of each executed notebook equals the summary's `executed_sha256`.
+
+**Default path (2026-10-29 16:05:51 UTC start).** Default settings, no overrides; session `suite-got-e061725-4ab2`; wall 1886.5 s (`wall_s`); `code_cells` 13, `executed_cells` 10, 0 errors. Retained evidence: [`docs/execution-evidence/2026-10-29/`](execution-evidence/2026-10-29/).
+
+Printed by the default run (verbatim lines from the executed outputs):
+
+```text
+{'verified_files': 8, 'revision': 'd3017ef2c2c1395888c8d635c5e0508bcb0ac78d'}
+{'scored_on': 'fresh test (row groups 8-9, 200 lines)', 'config': 'G1', 'test_look': 'reproduction', 'settings_differ': []}
+{'cer': {'empty': 1.0, 'constant': 0.94, 'frozen': 1.157, 'adapted': 0.902}}
+{'wer': {'empty': 1.0, 'constant': 0.998, 'frozen': 1.604, 'adapted': 1.308}}
+{'cer_macro': {'empty': 1.0, 'constant': 0.963, 'frozen': 1.192, 'adapted': 0.925}}
+{'delta_vs_frozen': {'cer': -0.255, 'wer': -0.296, 'cer_macro': -0.267, 'exact_match': 0.01}}
+Reading: CER 0.902 is below both baselines (empty 1.000, constant 0.940, frozen 1.157). WER 1.308 is NOT below either baseline (empty 1.000, constant 0.998, frozen 1.604): on this measure the adapted model does no better than predicting nothing. So the answer is split: yes on characters, no on whole words - most words still contain at least one error.
+{'reload_parity': {'identical_lines': 8, 'of': 8}, 'reloaded_best_epoch': 4}
+```
+
+**DAT20 refusal record (2026-10-29, blob `e2b4883b`).** Overrides, set by `--set` on a copy of the blob: `USE_BYOD` `False` → `True` and `BYOD_PATH` `''` → `'/etc/hostname'` (the run copy differs from the blob in exactly those 2 source lines). The suite cut the run copy right after the refusing cell `got_ocr2-17`, dropping 11 cells (5 of them code cells), which reproduces `Run all` stopping at the first error; the cut copy is `run_copy.ipynb`, SHA-256 `6d8879710c470e472c806e100b60ffd13aa5009023d987c3b9c1eb94e5542465` (Git blob `cb95911e`), equal to the summary's `run_copy_sha256`. The cut copy's earlier code cells completed without an error output; the refusing cell's only error output has `ename` `IsolatedCellStop` and no traceback, and its output holds exactly one `Refused:` line:
+
+```text
+Refused: hostname: /etc/hostname is neither a directory nor a zip file. Nothing was trained or scored on this input; the 0 files already in outputs/ are kept but come from the earlier run (none yet), as outputs/got_ocr2_run_invalidated.json says. Fix what the message names, then select this cell and choose Runtime -> Run after; Sections 6-9 stop with one line until this cell succeeds.
+```
+
+This run says nothing about the 11 cut cells, which did not run in it. Session `suite-got-e061725-4ab2`, wall 106.3 s. Retained evidence: [`docs/execution-evidence/2026-10-29/`](execution-evidence/2026-10-29/).
+
+**Local-path redaction.** Local paths were replaced byte-wise by `<local-run-dir>` (and the Colab CLI install path by `<colab-cli-tool-dir>/`) before the first commit; each executed notebook and run copy was checked against its `run_summary.json` before any edit.
+
+| File (under `docs/execution-evidence/2026-10-29/`) | Captured SHA-256 | Committed SHA-256 |
+|---|---|---|
+| `got_ocr2_colab_e061725_colab-cli-t4_default.ipynb` | `cb9e11ebdc9f0c0c890c9130302ef519dea4a0b7d03eeddc4bdac83a60b0febc` | `cb9e11ebdc9f0c0c890c9130302ef519dea4a0b7d03eeddc4bdac83a60b0febc` (unchanged, no local path) |
+| `got_ocr2_colab_e061725_colab-cli-t4_default_exec.log` | `cf04a618dbebad68df76f2688f64bf68b2442ebf2c6557f66442fb01cac54f24` | `50f5af9676b60ea657b5fbf75991c4d14e574641cd804d0e955f492459525382` (2 local-path replacements) |
+| `got_ocr2_colab_e061725_colab-cli-t4_default_run_summary.json` | `de9d062572b8434333408dc174dfc473c1a67df066442cebb9b8905e8b2cb73e` | `de9d062572b8434333408dc174dfc473c1a67df066442cebb9b8905e8b2cb73e` (unchanged, no local path) |
+
+| File (under `docs/execution-evidence/2026-10-29/`) | Captured SHA-256 | Committed SHA-256 |
+|---|---|---|
+| `got_ocr2_colab_e061725_colab-cli-t4_refusal.ipynb` | `56319084c0b62987cf3a2b15e0a4225d57c1e6b81493afe26203e387133a61eb` | `56319084c0b62987cf3a2b15e0a4225d57c1e6b81493afe26203e387133a61eb` (unchanged, no local path) |
+| `got_ocr2_colab_e061725_colab-cli-t4_refusal_exec.log` | `0026781f3c89072051f5cc9ab9be373852c522344c4cc101b0add1cb82782ec7` | `03fa877d55ab0d479f825ef194aa13ed6f846103d8bed78221a89ede7b2951e6` (2 local-path replacements) |
+| `got_ocr2_colab_e061725_colab-cli-t4_refusal_run_summary.json` | `628ff31cd124f6ca2049ec2195c380f70bef8eacbc524067f4354991793acc7d` | `628ff31cd124f6ca2049ec2195c380f70bef8eacbc524067f4354991793acc7d` (unchanged, no local path) |
+| `got_ocr2_colab_e061725_colab-cli-t4_refusal_run_copy.ipynb` | `6d8879710c470e472c806e100b60ffd13aa5009023d987c3b9c1eb94e5542465` | `6d8879710c470e472c806e100b60ffd13aa5009023d987c3b9c1eb94e5542465` (unchanged, no local path) |
+
+Not exercised by these runs: an accepted BYOD input (REL12), a browser `Run all` of the interactive journeys (REL2), and every other open gate named in this file; these runs close none of them.
+
 ## Current status
 
 **Candidate.** The row 30 blob `59bb22a6` (commit `f564d9e`) completed one hosted pass with no restart and 0 errors on 2026-10-17 (Colab CLI 0.7.4, fresh Colab Tesla T4, default path): the pre-registered evaluation, fresh-test CER 0.902 / WER 1.308 (frozen 1.157 / 1.604). The selection-only grid run (gridrun blob `9ec5eb71`) kept G1. The requoted notebook (blob `aae57e97`, PR #12 head `8442f8e`) then passed on a fresh Colab Tesla T4 on 2026-10-17 (Colab account 2; Colab CLI, 13/13 code cells, 0 errors, 1768.7 s). REL13: reproduction of the pre-registered evaluation, this blob: the notebook printed `test_look` `reproduction` with `settings_differ` [] and the `f564d9e` run as its evaluation of record, and every fresh-test figure equals the record (CER 1.157 → 0.902, WER 1.604 → 1.308, same intervals). Kaggle, BYOD and the activity are not yet recorded for this blob. REL13: the rest of this paragraph describes earlier blobs, not re-run on the current blob. Before that, the notebook was regenerated for review findings GOT-M1..M5 and GOT-m1..m4 (Notebook Review Framework v1, review PR #9). Its blob `cbe04372` (commit `0a6e9df`) completed one hosted pass with no restart and 0 errors on 2026-10-04 (Colab CLI 0.7.4 sequential execution, fresh Colab Tesla T4, default path only; record above). Remaining gates before promotion: a fresh-runtime run on the second executor class (Kaggle), the BYOD path and the change-one-thing activity. The previous blob `951ad49e` (committed at `b72789c`) ran on a fresh Kaggle Tesla T4 runtime on 2026-09-20 only in **2 passes**: pass 1 stopped at the install cell's stale-module guard (`RuntimeError: Core dependencies changed while older modules were loaded: cuda-bindings ...; numpy ...`), the executor restarted the interpreter, and pass 2 completed 11/11 code cells (1543.4 s). That is not a one-pass `Run all` (NOTEBOOK_SPEC §5, RUN1/RUN10), so it was never Release-grade evidence (review GOT-M1). Its model-stage numbers are still the reference the notebook's worked answers quote. The pre-flight rows above are history. The status stays **Candidate** until the remaining gates are recorded here.
+
+The current blob `e2b4883b` (code commit `4dc9985`) shows a refused BYOD input as exactly one `Refused: <file>: <reason>` line (previously a differently prefixed line), with no traceback, and stops Run all at that cell; genuine failures keep their traceback (NOTEBOOK_SPEC DAT19/DAT20). Its default path (2026-10-29; 13 code cells, exit 0, 0 errors) and its scripted DAT20 refusal (2026-10-29; `USE_BYOD=True;BYOD_PATH=/etc/hostname`: exactly one `Refused:` line at cell `got_ocr2-17`, no traceback, earlier cells clean, VM released) both passed on a hosted Colab Tesla T4 (Colab CLI `colab exec -f`, not a browser `Run all`), and the hosted runs of earlier blobs, including `aae57e97`, are history for it (REL14).
 
 Facts a reviewer should weigh: the sample is nineteenth-century French cursive, far outside the checkpoint's printed
 training distribution, which is why the frozen model scores above the empty baseline's CER 1.0 (it generates

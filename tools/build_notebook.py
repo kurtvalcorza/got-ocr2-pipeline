@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-GENERATOR_VERSION = "build_notebook.py/2.2"
+GENERATOR_VERSION = "build_notebook.py/2.3"
 NOTEBOOK_SPEC = "2.5"
 NOTEBOOK_KINDS = ("TUTORIAL", "DEMO", "WORKSHOP", "CAPSTONE")  # NOTEBOOK_SPEC 2.5 §3.7 (KND1)
 # NOTEBOOK_SPEC 2.5 §3.6.5 (DOC17-DOC21): the canonical use notice, placed after the title and before the first code

@@ -455,7 +455,13 @@ def _section4(tmp_path, monkeypatch, byod_path):
     source = _code_after("## 4. Belfort lines").replace("USE_BYOD = False", "USE_BYOD = True", 1).replace("BYOD_PATH = ''", f"BYOD_PATH = {str(byod_path)!r}", 1)
     ns = {name: getattr(got, name) for name in got.__all__}
     ns.update({"os": os, "Path": Path, "data_source": "the earlier sample run"})
-    exec(compile(source, "<section 4>", "exec"), ns)
+    try:
+        exec(compile(source, "<section 4>", "exec"), ns)
+    except Exception as exc:  # DAT20: a refusal stops the cell; IPython shows its one rendered line
+        if not getattr(exc, "dimer_stop", False):
+            raise
+        print(*exc._render_traceback_())
+        ns["_refusal"] = exc
     return ns
 
 
@@ -464,7 +470,7 @@ def test_refusal_keeps_earlier_outputs_marks_them_and_stops_later_sections(tmp_p
     (tmp_path / "outputs" / "got_ocr2_result.json").write_text("{}", encoding="utf-8")
     ns = _section4(tmp_path, monkeypatch, _zip(tmp_path, 5))
     out = capsys.readouterr().out
-    assert out.count("BYOD refused:") == 1 and "Traceback" not in out and "Runtime -> Run after" in out
+    assert out.count("Refused: byod5.zip: ") == 1 and "Traceback" not in out and "Runtime -> Run after" in out
     assert (tmp_path / "outputs" / "got_ocr2_result.json").is_file()  # earlier outputs are kept ...
     marker = json.loads((tmp_path / "outputs" / "got_ocr2_run_invalidated.json").read_text(encoding="utf-8"))
     assert "got_ocr2_result.json" in marker["files_in_outputs"] and marker["files_come_from"] == "the earlier sample run"  # ... and marked

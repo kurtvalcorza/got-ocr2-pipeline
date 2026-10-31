@@ -119,7 +119,13 @@ def _section4(monkeypatch, tmp_path, *, byod_path: str = "") -> dict:
     source = source.replace("USE_BYOD = False", "USE_BYOD = True", 1).replace("BYOD_PATH = ''", f"BYOD_PATH = {byod_path!r}", 1)
     ns: dict = {name: getattr(got, name) for name in got.__all__}
     ns.update({"os": __import__("os"), "Path": Path})
-    exec(compile(source, "<section 4>", "exec"), ns)
+    try:
+        exec(compile(source, "<section 4>", "exec"), ns)
+    except Exception as exc:  # DAT20: a refusal stops the cell; IPython shows its one rendered line
+        if not getattr(exc, "dimer_stop", False):
+            raise
+        print(*exc._render_traceback_())
+        ns["_refusal"] = exc
     return ns
 
 
@@ -163,7 +169,7 @@ def test_cancelled_upload_and_no_colab_are_actionable(monkeypatch, tmp_path, cap
     assert ns["RUN_STATE"]["valid"] is False and re.search(r"Upload exactly one .zip file \(received 0\).*BYOD_PATH", capsys.readouterr().out)
     monkeypatch.setitem(sys.modules, "google.colab", None)  # `from google.colab import files` raises ImportError
     ns = _section4(monkeypatch, tmp_path)
-    assert ns["RUN_STATE"]["valid"] is False and re.search(r"BYOD refused: The upload dialog needs Google Colab.*BYOD_PATH", capsys.readouterr().out)
+    assert ns["RUN_STATE"]["valid"] is False and re.search(r"(?m)^Refused: \(no file\): The upload dialog needs Google Colab.*BYOD_PATH", capsys.readouterr().out)
     ns = _section4(monkeypatch, tmp_path, byod_path=str(tmp_path / "missing.zip"))
     assert ns["RUN_STATE"]["valid"] is False and "does not exist in this runtime" in capsys.readouterr().out
 
