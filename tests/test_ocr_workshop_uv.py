@@ -31,7 +31,7 @@ REQUIREMENTS = ROOT / "tools" / "ocr-workshop-requirements.in"
 RUNTIME_CELL = "f5cd762a"
 FORMER_PINS = {
     "torch": "2.14.0", "torchvision": "0.29.0", "torchaudio": "2.11.0", "transformers": "4.57.6",
-    "safetensors": "0.8.0", "numpy": "2.1.3", "pillow": "11.3.0", "huggingface-hub": "0.36.2",
+    "safetensors": "0.8.0", "numpy": "2.1.3", "pillow": "13.0.0", "huggingface-hub": "0.36.2",
     "pyarrow": "25.0.1",
 }
 # The kernel may import only the standard library and what hosted runtimes ship.
